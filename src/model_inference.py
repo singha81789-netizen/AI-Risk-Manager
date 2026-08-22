@@ -9,7 +9,8 @@ from typing import Any, Dict, List, Optional, Union
 import numpy as np
 import pandas as pd
 
-from src.config import MODEL_FILE, PREPROCESSOR_FILE
+from src.config import MODEL_FILE, PREPROCESSOR_FILE, RISK_THRESHOLD_HIGH, RISK_THRESHOLD_MEDIUM
+from src.risk_scoring import compute_risk_score
 from src.utils import load_artifact, logger
 
 
@@ -99,8 +100,8 @@ class FraudPredictor:
     def score_transaction(
         self,
         raw_transaction: Dict[str, Any],
-        review_threshold: float = 0.35,
-        decline_threshold: float = 0.70,
+        review_threshold: float = RISK_THRESHOLD_MEDIUM,
+        decline_threshold: float = RISK_THRESHOLD_HIGH,
     ) -> Dict[str, Any]:
         """
         Evaluates a single raw transaction and generates a comprehensive risk assessment.
@@ -114,18 +115,12 @@ class FraudPredictor:
             Dict: Comprehensive risk assessment payload.
         """
         prob = self.predict_proba(raw_transaction)
-        risk_score = int(round(prob * 1000))  # Scale from 0 to 1000
-        
-        # Determine risk level category
-        if prob >= 0.85:
-            risk_level = "CRITICAL"
-        elif prob >= decline_threshold:
-            risk_level = "HIGH"
-        elif prob >= review_threshold:
-            risk_level = "MEDIUM"
-        else:
-            risk_level = "LOW"
-            
+        risk = compute_risk_score(
+            prob,
+            medium_threshold=review_threshold,
+            high_threshold=decline_threshold,
+        )
+
         # Determine automated action decision
         if prob >= decline_threshold:
             decision = "DECLINE"
@@ -140,9 +135,9 @@ class FraudPredictor:
         txn_id = raw_transaction.get("transaction_id", "UNKNOWN_TXN")
         return {
             "transaction_id": txn_id,
-            "fraud_probability": round(prob, 4),
-            "risk_score": risk_score,
-            "risk_level": risk_level,
+            "fraud_probability": risk.probability,
+            "risk_score": risk.risk_score,
+            "risk_level": risk.risk_level,
             "decision": decision,
             "is_fraud_predicted": bool(prob >= 0.5),
             "triggered_risk_factors": triggered_rules,
@@ -151,8 +146,8 @@ class FraudPredictor:
     def score_batch(
         self,
         df: pd.DataFrame,
-        review_threshold: float = 0.35,
-        decline_threshold: float = 0.70,
+        review_threshold: float = RISK_THRESHOLD_MEDIUM,
+        decline_threshold: float = RISK_THRESHOLD_HIGH,
     ) -> pd.DataFrame:
         """
         Scores a batch of transactions in a DataFrame, returning enriched risk metrics.
@@ -160,7 +155,7 @@ class FraudPredictor:
         probas = self.predict_proba(df)
         df_out = df.copy()
         df_out["fraud_probability"] = np.round(probas, 4)
-        df_out["risk_score"] = np.round(probas * 1000).astype(int)
+        df_out["risk_score"] = np.round(probas * 100).astype(int)
         
         # Vectorized decisions
         conditions = [
@@ -170,7 +165,7 @@ class FraudPredictor:
         ]
         decisions = ["DECLINE", "REVIEW", "APPROVE"]
         risk_levels = [
-            np.where(probas >= 0.85, "CRITICAL", "HIGH"),
+            "HIGH",
             "MEDIUM",
             "LOW",
         ]

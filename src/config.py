@@ -64,3 +64,14 @@ ALL_RAW_COLUMNS = (
     [DATETIME_COLUMN] + 
     ["age", "gender", "merchant_category", "amount", "transaction_type", "card_type", "card_present", "device_type", "distance_from_home", "distance_from_last_transaction", "high_risk_country", "velocity_last_24h", TARGET_COLUMN]
 )
+
+# Risk Scoring Thresholds (probability thresholds for risk level classification)
+# Adjust these to tune sensitivity without touching scoring logic.
+RISK_THRESHOLD_MEDIUM = 0.35   # P(fraud) >= this => MEDIUM
+RISK_THRESHOLD_HIGH   = 0.70   # P(fraud) >= this => HIGH
+
+# Anomaly Detection (IsolationForest) Defaults
+ANOMALY_CONTAMINATION = 0.05   # Expected proportion of outliers in training data
+ANOMALY_SCORE_MIN = -1.0       # Raw score lower bound (most anomalous)
+ANOMALY_SCORE_MAX =  1.0       # Raw score upper bound (most normal)
+ANOMALY_MODEL_FILE = MODELS_DIR / "anomaly_detector.joblib"

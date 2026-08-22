@@ -1,0 +1,154 @@
+{
+  "top_features": [
+    {
+      "rank": 1,
+      "feature": "num__distance_total",
+      "importance": 0.21165
+    },
+    {
+      "rank": 2,
+      "feature": "num__amount_x_velocity",
+      "importance": 0.2024
+    },
+    {
+      "rank": 3,
+      "feature": "num__distance_from_last_transaction",
+      "importance": 0.15517
+    },
+    {
+      "rank": 4,
+      "feature": "num__velocity_last_24h",
+      "importance": 0.09712
+    },
+    {
+      "rank": 5,
+      "feature": "num__distance_from_home",
+      "importance": 0.09378
+    },
+    {
+      "rank": 6,
+      "feature": "num__log_amount",
+      "importance": 0.05595
+    },
+    {
+      "rank": 7,
+      "feature": "flag__is_high_velocity",
+      "importance": 0.04565
+    },
+    {
+      "rank": 8,
+      "feature": "flag__is_far_from_home",
+      "importance": 0.02649
+    },
+    {
+      "rank": 9,
+      "feature": "flag__is_high_amount",
+      "importance": 0.02006
+    },
+    {
+      "rank": 10,
+      "feature": "flag__card_present",
+      "importance": 0.01825
+    },
+    {
+      "rank": 11,
+      "feature": "num__amount_to_age_ratio",
+      "importance": 0.01284
+    },
+    {
+      "rank": 12,
+      "feature": "num__amount_velocity_ratio",
+      "importance": 0.01166
+    },
+    {
+      "rank": 13,
+      "feature": "num__distance_ratio",
+      "importance": 0.00959
+    },
+    {
+      "rank": 14,
+      "feature": "cat__transaction_type_POS",
+      "importance": 0.00766
+    },
+    {
+      "rank": 15,
+      "feature": "flag__high_risk_country",
+      "importance": 0.00607
+    },
+    {
+      "rank": 16,
+      "feature": "cat__merchant_category_electronics",
+      "importance": 0.00405
+    },
+    {
+      "rank": 17,
+      "feature": "flag__is_high_risk_channel",
+      "importance": 0.00275
+    },
+    {
+      "rank": 18,
+      "feature": "cat__merchant_category_grocery",
+      "importance": 0.00219
+    },
+    {
+      "rank": 19,
+      "feature": "num__amount_cents",
+      "importance": 0.00176
+    },
+    {
+      "rank": 20,
+      "feature": "cat__transaction_type_Online",
+      "importance": 0.00159
+    },
+    {
+      "rank": 21,
+      "feature": "cat__merchant_category_travel",
+      "importance": 0.00155
+    },
+    {
+      "rank": 22,
+      "feature": "num__age",
+      "importance": 0.00137
+    },
+    {
+      "rank": 23,
+      "feature": "cat__transaction_type_Wire_Transfer",
+      "importance": 0.00124
+    },
+    {
+      "rank": 24,
+      "feature": "cat__merchant_category_dining",
+      "importance": 0.00118
+    },
+    {
+      "rank": 25,
+      "feature": "flag__sin_hour",
+      "importance": 0.00091
+    },
+    {
+      "rank": 26,
+      "feature": "flag__composite_risk_flag",
+      "importance": 0.0008
+    },
+    {
+      "rank": 27,
+      "feature": "flag__sin_day_of_week",
+      "importance": 0.00077
+    },
+    {
+      "rank": 28,
+      "feature": "cat__device_type_Web_Browser",
+      "importance": 0.00076
+    },
+    {
+      "rank": 29,
+      "feature": "flag__distance_from_last_is_missing",
+      "importance": 0.00071
+    },
+    {
+      "rank": 30,
+      "feature": "flag__cos_hour",
+      "importance": 0.00068
+    }
+  ]
+}

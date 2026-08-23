@@ -38,6 +38,10 @@ const MOCK_TRANSACTIONS: Transaction[] = [
       { label: 'Amount (1h)', count: 12450, threshold: 5000, passed: false },
       { label: 'International TXN', count: 0, threshold: 2, passed: true },
     ],
+    analystDecision: 'ESCALATE',
+    analystNotes: 'Escalating to senior fraud team. Multiple velocity breaches combined with device anomaly suggest organized fraud attempt.',
+    analystId: 'analyst-alex-r',
+    reviewedAt: '2026-08-23T14:45:00Z',
   },
   {
     id: 'TXN-20260823-002',
@@ -152,6 +156,10 @@ const MOCK_TRANSACTIONS: Transaction[] = [
       { label: 'Amount (1h)', count: 5750, threshold: 5000, passed: false },
       { label: 'International TXN', count: 0, threshold: 2, passed: true },
     ],
+    analystDecision: 'CONFIRM_FRAUD',
+    analystNotes: 'Card likely compromised. ATM pattern shows classic card theft behavior. Cardholder notified via SMS.',
+    analystId: 'analyst-maria-s',
+    reviewedAt: '2026-08-23T10:15:00Z',
   },
   {
     id: 'TXN-20260823-006',
@@ -278,6 +286,8 @@ const MOCK_FRAUD_STATS: FraudStats = {
   lowRiskCount: 13985,
   totalFraudLoss: 42350,
   preventedLoss: 187200,
+  reviewedTransactions: 612,
+  pendingReview: 235,
 };
 
 const MOCK_TRENDS: FraudTrend[] = [

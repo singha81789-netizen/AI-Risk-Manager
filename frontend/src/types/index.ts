@@ -2,6 +2,8 @@ export type RiskLevel = 'LOW' | 'MEDIUM' | 'HIGH';
 
 export type TransactionStatus = 'pending' | 'approved' | 'declined' | 'under_review';
 
+export type AnalystDecision = 'CONFIRM_FRAUD' | 'FALSE_POSITIVE' | 'ESCALATE';
+
 export interface Transaction {
   id: string;
   timestamp: string;
@@ -22,6 +24,10 @@ export interface Transaction {
   status: TransactionStatus;
   aiAnalysis: string;
   velocityChecks: VelocityCheck[];
+  analystDecision?: AnalystDecision | null;
+  analystNotes?: string;
+  analystId?: string;
+  reviewedAt?: string;
 }
 
 export interface VelocityCheck {
@@ -48,6 +54,8 @@ export interface FraudStats {
   lowRiskCount: number;
   totalFraudLoss: number;
   preventedLoss: number;
+  reviewedTransactions?: number;
+  pendingReview?: number;
 }
 
 export interface AnalystReview {
@@ -72,4 +80,44 @@ export interface CategoryRisk {
   category: string;
   riskScore: number;
   transactionCount: number;
+}
+
+// --- API types (match backend Pydantic schemas) ---
+
+export interface ApiAnalystReview {
+  id: number;
+  transaction_id: string;
+  analyst_id: string;
+  decision: AnalystDecision;
+  notes: string | null;
+  ai_fraud_probability: number | null;
+  ai_risk_score: number | null;
+  ai_risk_level: string | null;
+  ai_decision: string | null;
+  model_version: string | null;
+  created_at: string;
+}
+
+export interface ApiReviewDecisionRequest {
+  transaction_id: string;
+  analyst_id: string;
+  decision: AnalystDecision;
+  notes?: string;
+}
+
+export interface ApiReviewResponse {
+  transaction_id: string;
+  event_type: string;
+  actor: string;
+  status: string;
+}
+
+export interface ApiAuditLogEntry {
+  id: number;
+  event_type: string;
+  transaction_id: string | null;
+  actor: string;
+  timestamp: string;
+  details: Record<string, unknown> | null;
+  model_version: string | null;
 }

@@ -347,6 +347,21 @@ input, select, textarea {
   color: var(--color-primary);
 }
 
+.status-badge.reviewed-confirm_fraud {
+  background: rgba(239, 68, 68, 0.12);
+  color: var(--color-danger);
+}
+
+.status-badge.reviewed-false_positive {
+  background: rgba(34, 197, 94, 0.12);
+  color: var(--color-success);
+}
+
+.status-badge.reviewed-escalate {
+  background: rgba(168, 85, 247, 0.12);
+  color: #a855f7;
+}
+
 .card {
   background: var(--color-bg-card);
   border: 1px solid var(--color-border);
@@ -714,6 +729,185 @@ table tbody tr:hover {
 
 .filter-bar select {
   min-width: 140px;
+}
+
+.review-indicator {
+  display: inline-flex;
+  padding: 3px 8px;
+  border-radius: 4px;
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.review-indicator.pending {
+  background: var(--color-warning-bg);
+  color: var(--color-warning);
+}
+
+.review-indicator.reviewed {
+  background: var(--color-success-bg);
+  color: var(--color-success);
+}
+
+.review-form {
+  max-width: 560px;
+}
+
+.review-form-title {
+  font-size: 1rem;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.review-form-subtitle {
+  font-size: 0.82rem;
+  color: var(--color-text-muted);
+  margin-bottom: 16px;
+}
+
+.review-form-subtitle code {
+  background: var(--color-bg-secondary);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 0.82rem;
+}
+
+.decision-options {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.decision-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.decision-option:hover {
+  background: var(--color-bg-hover);
+}
+
+.decision-option.selected {
+  border-color: var(--color-primary);
+  background: rgba(99, 102, 241, 0.06);
+}
+
+.decision-option.selected.confirm_fraud {
+  border-color: var(--color-danger);
+  background: rgba(239, 68, 68, 0.06);
+}
+
+.decision-option.selected.false_positive {
+  border-color: var(--color-success);
+  background: rgba(34, 197, 94, 0.06);
+}
+
+.decision-option.selected.escalate {
+  border-color: #a855f7;
+  background: rgba(168, 85, 247, 0.06);
+}
+
+.decision-option input[type="radio"] {
+  accent-color: var(--color-primary);
+}
+
+.decision-label {
+  font-weight: 600;
+  font-size: 0.92rem;
+}
+
+.decision-desc {
+  font-size: 0.82rem;
+  color: var(--color-text-muted);
+}
+
+.review-notes-input {
+  width: 100%;
+  padding: 10px 12px;
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  color: var(--color-text);
+  font-size: 0.88rem;
+  resize: vertical;
+  outline: none;
+  margin-bottom: 12px;
+  transition: border-color 0.15s ease;
+}
+
+.review-notes-input:focus {
+  border-color: var(--color-primary);
+}
+
+.review-error {
+  padding: 8px 12px;
+  background: var(--color-danger-bg);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  border-radius: var(--radius-md);
+  color: var(--color-danger);
+  font-size: 0.85rem;
+  margin-bottom: 12px;
+}
+
+.review-success {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  background: var(--color-success-bg);
+  border: 1px solid rgba(34, 197, 94, 0.3);
+  border-radius: var(--radius-md);
+  color: var(--color-success);
+  font-size: 0.85rem;
+  margin-bottom: 12px;
+}
+
+.review-submit-btn {
+  padding: 10px 20px;
+  background: var(--color-primary);
+  color: #fff;
+  border-radius: var(--radius-md);
+  font-weight: 600;
+  font-size: 0.92rem;
+  transition: background 0.15s ease;
+}
+
+.review-submit-btn:hover:not(:disabled) {
+  background: var(--color-primary-hover);
+}
+
+.review-submit-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.review-form-already {
+  padding: 12px;
+  background: var(--color-bg-secondary);
+  border-radius: var(--radius-md);
+}
+
+.reviewed-indicator {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+  color: var(--color-success);
+  font-size: 0.92rem;
+  margin-bottom: 6px;
+}
+
+.reviewed-detail {
+  font-size: 0.88rem;
+  color: var(--color-text-secondary);
 }
 
 .mobile-menu-btn {

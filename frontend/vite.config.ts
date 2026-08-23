@@ -6,7 +6,19 @@ export default defineConfig({
   server: {
     port: 3000,
     proxy: {
-      '/api': {
+      '/predict': {
+        target: 'http://localhost:8000',
+        changeOrigin: true,
+      },
+      '/analyst': {
+        target: 'http://localhost:8000',
+        changeOrigin: true,
+      },
+      '/audit': {
+        target: 'http://localhost:8000',
+        changeOrigin: true,
+      },
+      '/health': {
         target: 'http://localhost:8000',
         changeOrigin: true,
       },

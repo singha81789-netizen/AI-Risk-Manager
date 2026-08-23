@@ -32,11 +32,16 @@ const icons = {
       <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
     </svg>
   ),
-  loss: (
+  reviewed: (
+    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="#a855f7" strokeWidth="2">
+      <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
+      <polyline points="22 4 12 14.01 9 11.01" />
+    </svg>
+  ),
+  pending: (
     <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="#f59e0b" strokeWidth="2">
       <circle cx="12" cy="12" r="10" />
-      <line x1="12" y1="8" x2="12" y2="12" />
-      <line x1="12" y1="16" x2="12.01" y2="16" />
+      <polyline points="12 6 12 12 16 14" />
     </svg>
   ),
 }
@@ -50,6 +55,9 @@ export default function Dashboard() {
 
   const formatCurrency = (n: number) =>
     new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(n)
+
+  const reviewedCount = flagged.filter((t) => t.analystDecision).length
+  const pendingCount = flagged.filter((t) => !t.analystDecision).length
 
   return (
     <div>
@@ -76,20 +84,20 @@ export default function Dashboard() {
           changeType="negative"
         />
         <StatCard
-          label="Prevented Loss"
-          value={formatCurrency(stats.preventedLoss)}
-          icon={icons.prevented}
-          iconBg="rgba(34, 197, 94, 0.12)"
-          change="95.3% detection rate"
+          label="Reviewed"
+          value={reviewedCount.toLocaleString()}
+          icon={icons.reviewed}
+          iconBg="rgba(168, 85, 247, 0.12)"
+          change="Analyst decisions recorded"
           changeType="positive"
         />
         <StatCard
-          label="Total Fraud Loss"
-          value={formatCurrency(stats.totalFraudLoss)}
-          icon={icons.loss}
+          label="Pending Review"
+          value={pendingCount.toLocaleString()}
+          icon={icons.pending}
           iconBg="rgba(245, 158, 11, 0.12)"
-          change="-12.4% vs last week"
-          changeType="positive"
+          change="Awaiting analyst review"
+          changeType="negative"
         />
       </div>
 
@@ -138,7 +146,7 @@ export default function Dashboard() {
                   <td>{txn.merchant}</td>
                   <td><RiskScoreBar score={txn.riskScore} /></td>
                   <td><RiskBadge level={txn.riskLevel} /></td>
-                  <td><StatusBadge status={txn.status} /></td>
+                  <td><StatusBadge status={txn.status} analystDecision={txn.analystDecision} /></td>
                 </tr>
               ))}
             </tbody>

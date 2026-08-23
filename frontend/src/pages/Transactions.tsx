@@ -5,7 +5,9 @@ import RiskBadge from '../components/common/RiskBadge'
 import RiskScoreBar from '../components/common/RiskScoreBar'
 import StatusBadge from '../components/common/StatusBadge'
 import { format } from 'date-fns'
-import type { RiskLevel, TransactionStatus } from '../types'
+import type { RiskLevel, TransactionStatus, AnalystDecision } from '../types'
+
+type ReviewFilter = 'ALL' | 'reviewed' | 'pending'
 
 export default function Transactions() {
   const navigate = useNavigate()
@@ -14,6 +16,7 @@ export default function Transactions() {
   const [search, setSearch] = useState('')
   const [riskFilter, setRiskFilter] = useState<RiskLevel | 'ALL'>('ALL')
   const [statusFilter, setStatusFilter] = useState<TransactionStatus | 'ALL'>('ALL')
+  const [reviewFilter, setReviewFilter] = useState<ReviewFilter>('ALL')
 
   const filtered = allTransactions.filter((txn) => {
     const matchesSearch =
@@ -24,12 +27,26 @@ export default function Transactions() {
 
     const matchesRisk = riskFilter === 'ALL' || txn.riskLevel === riskFilter
     const matchesStatus = statusFilter === 'ALL' || txn.status === statusFilter
+    const matchesReview =
+      reviewFilter === 'ALL' ||
+      (reviewFilter === 'reviewed' && txn.analystDecision) ||
+      (reviewFilter === 'pending' && !txn.analystDecision)
 
-    return matchesSearch && matchesRisk && matchesStatus
+    return matchesSearch && matchesRisk && matchesStatus && matchesReview
   })
 
   const formatCurrency = (n: number) =>
     new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(n)
+
+  const getReviewLabel = (d?: AnalystDecision | null): string => {
+    if (!d) return 'Pending'
+    const labels: Record<AnalystDecision, string> = {
+      CONFIRM_FRAUD: 'Fraud Confirmed',
+      FALSE_POSITIVE: 'False Positive',
+      ESCALATE: 'Escalated',
+    }
+    return labels[d]
+  }
 
   return (
     <div>
@@ -64,6 +81,14 @@ export default function Transactions() {
           <option value="declined">Declined</option>
           <option value="pending">Pending</option>
         </select>
+        <select
+          value={reviewFilter}
+          onChange={(e) => setReviewFilter(e.target.value as ReviewFilter)}
+        >
+          <option value="ALL">All Reviews</option>
+          <option value="pending">Pending Review</option>
+          <option value="reviewed">Reviewed</option>
+        </select>
       </div>
 
       <div className="card">
@@ -80,10 +105,10 @@ export default function Transactions() {
                 <th>Amount</th>
                 <th>Merchant</th>
                 <th>Category</th>
-                <th>Location</th>
                 <th>Risk Score</th>
                 <th>Risk Level</th>
                 <th>Status</th>
+                <th>Review</th>
               </tr>
             </thead>
             <tbody>
@@ -99,10 +124,14 @@ export default function Transactions() {
                   <td>{formatCurrency(txn.amount)}</td>
                   <td>{txn.merchant}</td>
                   <td>{txn.merchantCategory}</td>
-                  <td>{txn.city}, {txn.country}</td>
                   <td><RiskScoreBar score={txn.riskScore} /></td>
                   <td><RiskBadge level={txn.riskLevel} /></td>
-                  <td><StatusBadge status={txn.status} /></td>
+                  <td><StatusBadge status={txn.status} analystDecision={txn.analystDecision} /></td>
+                  <td>
+                    <span className={`review-indicator ${txn.analystDecision ? 'reviewed' : 'pending'}`}>
+                      {getReviewLabel(txn.analystDecision)}
+                    </span>
+                  </td>
                 </tr>
               ))}
               {filtered.length === 0 && (

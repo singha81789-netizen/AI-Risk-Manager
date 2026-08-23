@@ -1,15 +1,41 @@
+import { useState, useEffect, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { getTransactionById, getReviewsByTransactionId } from '../services/mockData'
+import { getAnalystReviews } from '../services/api'
 import RiskBadge from '../components/common/RiskBadge'
 import StatusBadge from '../components/common/StatusBadge'
+import AnalystReviewForm from '../components/common/AnalystReviewForm'
 import { format } from 'date-fns'
+import type { AnalystDecision, ApiAnalystReview } from '../types'
 
 export default function TransactionDetail() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
 
   const txn = id ? getTransactionById(id) : undefined
-  const reviews = id ? getReviewsByTransactionId(id) : []
+  const mockReviews = id ? getReviewsByTransactionId(id) : []
+
+  const [apiReviews, setApiReviews] = useState<ApiAnalystReview[]>([])
+  const [localDecision, setLocalDecision] = useState<AnalystDecision | null>(null)
+
+  const loadReviews = useCallback(async () => {
+    if (!id) return
+    try {
+      const reviews = await getAnalystReviews(id)
+      setApiReviews(reviews)
+      if (reviews.length > 0) {
+        setLocalDecision(reviews[0].decision)
+      }
+    } catch {
+      // API may be unavailable -- fall back to mock data silently
+    }
+  }, [id])
+
+  useEffect(() => {
+    loadReviews()
+  }, [loadReviews])
+
+  const effectiveDecision = localDecision || txn?.analystDecision || null
 
   if (!txn) {
     return (
@@ -30,6 +56,10 @@ export default function TransactionDetail() {
 
   const formatCurrency = (n: number) =>
     new Intl.NumberFormat('en-US', { style: 'currency', currency: txn.currency }).format(n)
+
+  function handleReviewSubmitted(decision: AnalystDecision, _notes: string) {
+    setLocalDecision(decision)
+  }
 
   return (
     <div>
@@ -104,7 +134,7 @@ export default function TransactionDetail() {
               </div>
               <div className="detail-field">
                 <label>Status</label>
-                <StatusBadge status={txn.status} />
+                <StatusBadge status={txn.status} analystDecision={effectiveDecision} />
               </div>
             </div>
           </div>
@@ -180,17 +210,46 @@ export default function TransactionDetail() {
         </div>
       </div>
 
-      <div className="card">
+      <div className="card" style={{ marginBottom: 16 }}>
         <div className="card-header">
-          <h3>Analyst Reviews</h3>
+          <h3>Analyst Review</h3>
         </div>
         <div className="card-body">
-          {reviews.length === 0 ? (
-            <div className="empty-state">
-              <p>No analyst reviews yet.</p>
-            </div>
-          ) : (
-            reviews.map((review) => (
+          <AnalystReviewForm
+            transactionId={txn.id}
+            existingDecision={effectiveDecision}
+            onReviewSubmitted={handleReviewSubmitted}
+          />
+        </div>
+      </div>
+
+      {(apiReviews.length > 0 || mockReviews.length > 0) && (
+        <div className="card">
+          <div className="card-header">
+            <h3>Review History</h3>
+          </div>
+          <div className="card-body">
+            {apiReviews.map((review) => (
+              <div key={review.id} className="review-card">
+                <div className="review-header">
+                  <span className="analyst">{review.analyst_id}</span>
+                  <span className="time">
+                    {format(new Date(review.created_at), 'MMM d, HH:mm')}
+                  </span>
+                </div>
+                <span className={`review-decision ${review.decision.toLowerCase()}`}>
+                  {review.decision.replace('_', ' ')}
+                </span>
+                {review.notes && <p className="review-notes">{review.notes}</p>}
+                {review.ai_fraud_probability != null && (
+                  <div className="review-confidence">
+                    AI probability: {(review.ai_fraud_probability * 100).toFixed(1)}%
+                    {review.ai_risk_level && <> | AI level: {review.ai_risk_level}</>}
+                  </div>
+                )}
+              </div>
+            ))}
+            {apiReviews.length === 0 && mockReviews.map((review) => (
               <div key={review.id} className="review-card">
                 <div className="review-header">
                   <span className="analyst">{review.analystName}</span>
@@ -206,10 +265,15 @@ export default function TransactionDetail() {
                   Confidence: {Math.round(review.confidence * 100)}%
                 </div>
               </div>
-            ))
-          )}
+            ))}
+            {apiReviews.length === 0 && mockReviews.length === 0 && (
+              <div className="empty-state">
+                <p>No analyst reviews yet.</p>
+              </div>
+            )}
+          </div>
         </div>
-      </div>
+      )}
     </div>
   )
 }

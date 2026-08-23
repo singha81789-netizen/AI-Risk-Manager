@@ -12,6 +12,7 @@ from src.anomaly_detection import AnomalyDetector
 from src.audit import (
     log_analyst_decision,
     log_analyst_review,
+    log_analyst_review_persisted,
     log_prediction_generated,
     log_risk_score_generated,
     log_transaction_flagged,
@@ -20,7 +21,7 @@ from src.audit import (
 from src.config import ANOMALY_MODEL_FILE, MODEL_FILE, MODEL_VERSION, PREPROCESSOR_FILE
 from src.database import get_db_session
 from src.model_inference import FraudPredictor
-from src.models_db import AuditLog, RiskPrediction, Transaction
+from src.models_db import AnalystReview, AuditLog, RiskPrediction, Transaction
 from src.utils import load_artifact, logger
 
 router = APIRouter()
@@ -329,6 +330,10 @@ def analyst_decision(payload: AnalystDecisionRequest) -> AnalystReviewResponse:
     """An analyst submits a final decision for a reviewed transaction.
 
     Valid decisions: CONFIRM_FRAUD, FALSE_POSITIVE, ESCALATE.
+
+    The decision is persisted to ``analyst_reviews`` alongside the original
+    AI prediction values, creating a labelled record suitable for future
+    model retraining.
     """
     valid_decisions = {"CONFIRM_FRAUD", "FALSE_POSITIVE", "ESCALATE"}
     if payload.decision not in valid_decisions:
@@ -343,6 +348,56 @@ def analyst_decision(payload: AnalystDecisionRequest) -> AnalystReviewResponse:
         decision=payload.decision,
         notes=payload.notes,
     )
+
+    # Fetch the AI prediction for this transaction to store alongside the review
+    ai_fraud_probability = None
+    ai_risk_score = None
+    ai_risk_level = None
+    ai_decision = None
+    try:
+        with get_db_session() as session:
+            prediction = (
+                session.query(RiskPrediction)
+                .filter(RiskPrediction.transaction_id == payload.transaction_id)
+                .order_by(RiskPrediction.created_at.desc())
+                .first()
+            )
+            if prediction:
+                ai_fraud_probability = prediction.fraud_probability
+                ai_risk_score = prediction.risk_score
+                ai_risk_level = prediction.risk_level
+                ai_decision = prediction.prediction
+    except Exception as exc:
+        logger.warning(f"Could not fetch AI prediction for review: {exc}")
+
+    # Persist the analyst review record
+    try:
+        with get_db_session() as session:
+            review_record = AnalystReview(
+                transaction_id=payload.transaction_id,
+                analyst_id=payload.analyst_id,
+                decision=payload.decision,
+                notes=payload.notes,
+                ai_fraud_probability=ai_fraud_probability,
+                ai_risk_score=ai_risk_score,
+                ai_risk_level=ai_risk_level,
+                ai_decision=ai_decision,
+                model_version=MODEL_VERSION,
+            )
+            session.add(review_record)
+    except Exception as exc:
+        logger.warning(f"Failed to persist analyst review: {exc}")
+
+    log_analyst_review_persisted(
+        transaction_id=payload.transaction_id,
+        analyst_id=payload.analyst_id,
+        decision=payload.decision,
+        ai_fraud_probability=ai_fraud_probability,
+        ai_risk_score=ai_risk_score,
+        ai_risk_level=ai_risk_level,
+        ai_decision=ai_decision,
+    )
+
     return AnalystReviewResponse(
         transaction_id=payload.transaction_id,
         event_type="analyst_decision",
@@ -391,3 +446,53 @@ def get_audit_logs(
     except Exception as exc:
         logger.error(f"Failed to fetch audit logs: {exc}")
         raise HTTPException(status_code=500, detail="Failed to retrieve audit logs")
+
+
+# ---------------------------------------------------------------------------
+# Analyst review retrieval
+# ---------------------------------------------------------------------------
+
+@router.get(
+    "/analyst/reviews",
+    summary="Retrieve analyst reviews (optionally filtered by transaction_id)",
+    tags=["Analyst"],
+)
+def get_analyst_reviews(
+    transaction_id: Optional[str] = None,
+    limit: int = 50,
+) -> List[Dict[str, Any]]:
+    """Return persisted analyst review records.
+
+    Pass ``transaction_id`` to filter reviews for a specific transaction.
+    ``limit`` caps the number of rows returned (default 50, max 500).
+    """
+    limit = min(limit, 500)
+    try:
+        with get_db_session() as session:
+            query = session.query(AnalystReview)
+            if transaction_id:
+                query = query.filter(AnalystReview.transaction_id == transaction_id)
+            rows = (
+                query.order_by(AnalystReview.created_at.desc())
+                .limit(limit)
+                .all()
+            )
+            return [
+                {
+                    "id": r.id,
+                    "transaction_id": r.transaction_id,
+                    "analyst_id": r.analyst_id,
+                    "decision": r.decision,
+                    "notes": r.notes,
+                    "ai_fraud_probability": r.ai_fraud_probability,
+                    "ai_risk_score": r.ai_risk_score,
+                    "ai_risk_level": r.ai_risk_level,
+                    "ai_decision": r.ai_decision,
+                    "model_version": r.model_version,
+                    "created_at": r.created_at.isoformat() if r.created_at else None,
+                }
+                for r in rows
+            ]
+    except Exception as exc:
+        logger.error(f"Failed to fetch analyst reviews: {exc}")
+        raise HTTPException(status_code=500, detail="Failed to retrieve analyst reviews")

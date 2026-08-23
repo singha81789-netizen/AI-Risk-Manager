@@ -81,6 +81,39 @@ class RiskPrediction(Base):
 # Event type constants for audit logging
 # ---------------------------------------------------------------------------
 
+class AnalystReview(Base):
+    """Persisted analyst review record linking a human decision to a prediction.
+
+    Designed for retraining: each row captures the analyst's ground-truth
+    label (CONFIRM_FRAUD / FALSE_POSITIVE / ESCALATE) alongside the original
+    AI prediction, enabling future model retraining on confirmed labels.
+    """
+
+    __tablename__ = "analyst_reviews"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    transaction_id = Column(String(128), nullable=False, index=True)
+    analyst_id = Column(String(128), nullable=False)
+    decision = Column(String(32), nullable=False)
+    notes = Column(Text, nullable=True)
+    ai_fraud_probability = Column(Float, nullable=True)
+    ai_risk_score = Column(Integer, nullable=True)
+    ai_risk_level = Column(String(16), nullable=True)
+    ai_decision = Column(String(16), nullable=True)
+    model_version = Column(String(64), nullable=True)
+    created_at = Column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        nullable=False,
+    )
+
+    def __repr__(self) -> str:
+        return (
+            f"<AnalystReview(id={self.id}, transaction_id={self.transaction_id}, "
+            f"decision={self.decision}, analyst={self.analyst_id})>"
+        )
+
+
 class EventType:
     """Canonical event type identifiers stored in audit_logs.event_type."""
 
@@ -90,6 +123,7 @@ class EventType:
     TRANSACTION_FLAGGED = "transaction_flagged"
     ANALYST_REVIEW = "analyst_review"
     ANALYST_DECISION = "analyst_decision"
+    ANALYST_REVIEW_PERSISTED = "analyst_review_persisted"
     SYSTEM_STARTUP = "system_startup"
     SYSTEM_SHUTDOWN = "system_shutdown"
 

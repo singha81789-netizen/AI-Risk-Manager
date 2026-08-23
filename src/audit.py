@@ -159,3 +159,32 @@ def log_analyst_decision(
             "notes": notes,
         },
     )
+
+
+def log_analyst_review_persisted(
+    transaction_id: Optional[str],
+    analyst_id: str,
+    decision: str,
+    ai_fraud_probability: Optional[float] = None,
+    ai_risk_score: Optional[int] = None,
+    ai_risk_level: Optional[str] = None,
+    ai_decision: Optional[str] = None,
+) -> None:
+    """Convenience wrapper for *analyst_review_persisted* events.
+
+    Records that a review row was written to the ``analyst_reviews`` table.
+    The details payload includes the AI prediction values so the audit trail
+    captures the full context for retraining.
+    """
+    log_event(
+        event_type=EventType.ANALYST_REVIEW_PERSISTED,
+        transaction_id=transaction_id,
+        actor=analyst_id,
+        details={
+            "decision": decision,
+            "ai_fraud_probability": ai_fraud_probability,
+            "ai_risk_score": ai_risk_score,
+            "ai_risk_level": ai_risk_level,
+            "ai_decision": ai_decision,
+        },
+    )

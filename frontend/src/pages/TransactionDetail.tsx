@@ -1,12 +1,12 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { getTransactionById, getReviewsByTransactionId } from '../services/mockData'
-import { getAnalystReviews } from '../services/api'
+import { getAnalystReviews, getModelExplanation } from '../services/api'
 import RiskBadge from '../components/common/RiskBadge'
 import StatusBadge from '../components/common/StatusBadge'
 import AnalystReviewForm from '../components/common/AnalystReviewForm'
 import { format } from 'date-fns'
-import type { AnalystDecision, ApiAnalystReview } from '../types'
+import type { AnalystDecision, ApiAnalystReview, ModelExplanation } from '../types'
 
 export default function TransactionDetail() {
   const { id } = useParams<{ id: string }>()
@@ -17,6 +17,8 @@ export default function TransactionDetail() {
 
   const [apiReviews, setApiReviews] = useState<ApiAnalystReview[]>([])
   const [localDecision, setLocalDecision] = useState<AnalystDecision | null>(null)
+  const [explanation, setExplanation] = useState<ModelExplanation | null>(null)
+  const [explanationError, setExplanationError] = useState<string | null>(null)
 
   const loadReviews = useCallback(async () => {
     if (!id) return
@@ -31,9 +33,37 @@ export default function TransactionDetail() {
     }
   }, [id])
 
+  const loadExplanation = useCallback(async () => {
+    if (!txn) return
+    try {
+      const result = await getModelExplanation({
+        transaction_id: txn.id,
+        age: txn.riskScore, // mock data doesn't store raw fields, so we use what's available
+        gender: 'M',
+        merchant_category: txn.merchantCategory,
+        amount: txn.amount,
+        transaction_type: 'Online',
+        card_type: 'Credit',
+        card_present: 0,
+        device_type: 'Web_Browser',
+        distance_from_home: 50,
+        distance_from_last_transaction: 30,
+        high_risk_country: 0,
+        velocity_last_24h: 3,
+      })
+      setExplanation(result)
+    } catch {
+      setExplanationError('Model explanation unavailable')
+    }
+  }, [txn])
+
   useEffect(() => {
     loadReviews()
   }, [loadReviews])
+
+  useEffect(() => {
+    loadExplanation()
+  }, [loadExplanation])
 
   const effectiveDecision = localDecision || txn?.analystDecision || null
 
@@ -186,6 +216,86 @@ export default function TransactionDetail() {
         <div className="label">AI Analysis</div>
         <p>{txn.aiAnalysis}</p>
       </div>
+
+      {/* Model Explanation — SHAP-based feature contributions */}
+      {explanation && explanation.factors.length > 0 && (
+        <div className="card" style={{ marginBottom: 16 }}>
+          <div className="card-header">
+            <h3>Model Explanation</h3>
+            <span style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', marginLeft: 8 }}>
+              source: model ({explanation.source})
+            </span>
+          </div>
+          <div className="card-body">
+            <p style={{ fontSize: '0.85rem', color: 'var(--color-text-muted)', marginBottom: 12 }}>
+              Features ranked by their contribution to the fraud prediction.
+              Positive values increase risk; negative values decrease it.
+            </p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {explanation.factors.map((factor, i) => {
+                const absVal = Math.abs(factor.contribution)
+                const maxAbs = Math.abs(explanation.factors[0]?.contribution || 1)
+                const barWidth = Math.min((absVal / maxAbs) * 100, 100)
+                const barColor = factor.direction === 'increases_risk'
+                  ? 'var(--color-risk-high, #ef4444)'
+                  : 'var(--color-risk-low, #22c55e)'
+                return (
+                  <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{
+                      minWidth: 200,
+                      fontSize: '0.82rem',
+                      color: 'var(--color-text)',
+                      textAlign: 'right',
+                    }}>
+                      {factor.feature}
+                    </span>
+                    <div style={{
+                      flex: 1,
+                      height: 18,
+                      background: 'var(--color-bg-secondary, #1e293b)',
+                      borderRadius: 4,
+                      overflow: 'hidden',
+                      position: 'relative',
+                    }}>
+                      <div style={{
+                        width: `${barWidth}%`,
+                        height: '100%',
+                        background: barColor,
+                        opacity: 0.8,
+                        borderRadius: 4,
+                        transition: 'width 0.3s ease',
+                      }} />
+                    </div>
+                    <span style={{
+                      minWidth: 80,
+                      fontSize: '0.78rem',
+                      fontFamily: 'monospace',
+                      color: factor.direction === 'increases_risk'
+                        ? 'var(--color-risk-high, #ef4444)'
+                        : 'var(--color-risk-low, #22c55e)',
+                      textAlign: 'right',
+                    }}>
+                      {factor.contribution > 0 ? '+' : ''}{factor.contribution.toFixed(4)}
+                    </span>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        </div>
+      )}
+      {explanationError && !explanation && (
+        <div className="card" style={{ marginBottom: 16 }}>
+          <div className="card-header">
+            <h3>Model Explanation</h3>
+          </div>
+          <div className="card-body">
+            <p style={{ fontSize: '0.85rem', color: 'var(--color-text-muted)' }}>
+              {explanationError}
+            </p>
+          </div>
+        </div>
+      )}
 
       <div className="card" style={{ marginBottom: 16 }}>
         <div className="card-header">

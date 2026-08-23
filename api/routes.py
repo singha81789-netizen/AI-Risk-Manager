@@ -20,6 +20,7 @@ from src.audit import (
 )
 from src.config import ANOMALY_MODEL_FILE, MODEL_FILE, MODEL_VERSION, PREPROCESSOR_FILE
 from src.database import get_db_session
+from src.explainability import ModelExplainer
 from src.model_inference import FraudPredictor
 from src.models_db import AnalystReview, AuditLog, RiskPrediction, Transaction
 from src.utils import load_artifact, logger
@@ -33,6 +34,7 @@ router = APIRouter()
 
 _predictor: Optional[FraudPredictor] = None
 _detector: Optional[AnomalyDetector] = None
+_explainer: Optional[ModelExplainer] = None
 
 
 def _load_models() -> None:
@@ -41,7 +43,7 @@ def _load_models() -> None:
     Called once during application startup.  If the required model files
     do not exist the API still starts but ``/predict`` will return 503.
     """
-    global _predictor, _detector
+    global _predictor, _detector, _explainer
 
     if _predictor is None:
         try:
@@ -58,6 +60,15 @@ def _load_models() -> None:
         except Exception as exc:
             logger.warning(f"Could not load anomaly detector: {exc}")
 
+    if _explainer is None:
+        try:
+            _explainer = ModelExplainer(
+                model_path=MODEL_FILE,
+                preprocessor_path=PREPROCESSOR_FILE,
+            )
+        except Exception as exc:
+            logger.warning(f"Could not load model explainer: {exc}")
+
 
 def _get_predictor() -> FraudPredictor:
     if _predictor is None:
@@ -70,6 +81,10 @@ def _get_predictor() -> FraudPredictor:
 
 def _get_detector() -> Optional[AnomalyDetector]:
     return _detector
+
+
+def _get_explainer() -> Optional[ModelExplainer]:
+    return _explainer
 
 
 # ---------------------------------------------------------------------------
@@ -256,6 +271,111 @@ def predict_transaction(payload: TransactionRequest) -> PredictionResponse:
         )
 
     return response
+
+
+# ---------------------------------------------------------------------------
+# Model explainability endpoint
+# ---------------------------------------------------------------------------
+
+class FeatureFactorOutput(BaseModel):
+    """Single feature contribution in the explanation."""
+
+    feature: str
+    raw_feature: str
+    contribution: float
+    feature_value: Any
+    direction: str
+
+
+class ModelExplanationResponse(BaseModel):
+    """Structured response from POST /explain."""
+
+    transaction_id: str
+    fraud_probability: float
+    risk_score: int
+    factors: List[FeatureFactorOutput]
+    base_value: float
+    model_version: str
+    source: str = "model"
+
+
+class ExplanationRequest(BaseModel):
+    """Request payload for generating a model explanation.
+
+    Accepts the same raw transaction fields as the prediction endpoint.
+    """
+
+    transaction_id: Optional[str] = Field(None, description="Transaction identifier")
+    age: int = Field(..., ge=0, le=150)
+    gender: str = Field(...)
+    merchant_category: str = Field(...)
+    amount: float = Field(..., gt=0)
+    transaction_type: str = Field(...)
+    card_type: str = Field(...)
+    card_present: int = Field(..., ge=0, le=1)
+    device_type: str = Field(...)
+    distance_from_home: float = Field(..., ge=0)
+    distance_from_last_transaction: float = Field(..., ge=0)
+    high_risk_country: int = Field(..., ge=0, le=1)
+    velocity_last_24h: int = Field(..., ge=0)
+    timestamp: Optional[str] = Field(None)
+
+
+@router.post(
+    "/explain",
+    response_model=ModelExplanationResponse,
+    summary="Generate a human-readable model explanation for a transaction",
+    tags=["Explainability"],
+)
+def explain_transaction(payload: ExplanationRequest) -> ModelExplanationResponse:
+    """Generate per-prediction feature contributions using SHAP.
+
+    The response contains:
+    - ``factors`` — ranked list of features that contributed to the prediction,
+      each with a human-readable name, contribution score, and direction.
+    - ``source`` — always ``"model"`` to distinguish from RAG policy explanations.
+
+    This endpoint is isolated from the RAG system.  Model-based explanations
+    and policy-based RAG evidence are kept separate by design.
+    """
+    explainer = _get_explainer()
+    if explainer is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Model explainer is not loaded. Run the training pipeline first.",
+        )
+
+    txn_dict = payload.model_dump()
+    try:
+        explanation = explainer.explain(
+            raw_transaction=txn_dict,
+            transaction_id=payload.transaction_id,
+            model_version=MODEL_VERSION,
+        )
+    except Exception as exc:
+        logger.error(f"Explanation failed: {exc}")
+        raise HTTPException(status_code=500, detail=f"Explanation failed: {exc}")
+
+    factors = [
+        FeatureFactorOutput(
+            feature=f.feature,
+            raw_feature=f.raw_feature,
+            contribution=f.contribution,
+            feature_value=f.feature_value,
+            direction=f.direction,
+        )
+        for f in explanation.factors
+    ]
+
+    return ModelExplanationResponse(
+        transaction_id=explanation.transaction_id,
+        fraud_probability=explanation.fraud_probability,
+        risk_score=explanation.risk_score,
+        factors=factors,
+        base_value=explanation.base_value,
+        model_version=explanation.model_version,
+        source="model",
+    )
 
 
 # ---------------------------------------------------------------------------

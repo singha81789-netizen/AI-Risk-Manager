@@ -4,6 +4,7 @@ import type {
   ApiReviewResponse,
   ApiAuditLogEntry,
   AnalystDecision,
+  ModelExplanation,
 } from '../types';
 
 const BASE_URL = '';
@@ -81,5 +82,14 @@ export async function submitReview(
     analyst_id: analystId,
     decision,
     notes: notes || undefined,
+  });
+}
+
+export async function getModelExplanation(
+  payload: Record<string, unknown>,
+): Promise<ModelExplanation> {
+  return request('/api/explain', {
+    method: 'POST',
+    body: JSON.stringify(payload),
   });
 }

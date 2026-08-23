@@ -23,6 +23,7 @@ from sklearn.metrics import (
 )
 
 from src.config import (
+    ANOMALY_MODEL_FILE,
     FEATURE_IMPORTANCES_FILE,
     MODEL_FILE,
     MODEL_METRICS_FILE,
@@ -200,6 +201,51 @@ def extract_feature_importances(
     return feature_ranking
 
 
+def train_anomaly_detector(
+    X_train: pd.DataFrame,
+    contamination: float = 0.05,
+    n_estimators: int = 100,
+    random_state: int = RANDOM_STATE,
+) -> "AnomalyDetector":
+    """Train an unsupervised IsolationForest anomaly detector.
+
+    The anomaly detector operates on the **same preprocessed features** as
+    the supervised classifier, but it does NOT use the ``is_fraud`` labels.
+    This makes it a complementary signal that can flag novel fraud patterns
+    the supervised model may never have seen.
+
+    Parameters
+    ----------
+    X_train : DataFrame
+        Preprocessed feature matrix (no target column).
+    contamination : float
+        Expected proportion of outliers.  Default 0.05 (5%).
+    n_estimators : int
+        Number of isolation trees.
+    random_state : int
+        Seed for reproducibility.
+
+    Returns
+    -------
+    AnomalyDetector
+        Fitted detector ready for ``detect()`` calls.
+    """
+    from src.anomaly_detection import AnomalyDetector
+
+    logger.info(
+        f"Training IsolationForest anomaly detector: "
+        f"contamination={contamination}, n_estimators={n_estimators}"
+    )
+    detector = AnomalyDetector(
+        contamination=contamination,
+        random_state=random_state,
+        n_estimators=n_estimators,
+    )
+    detector.fit(X_train)
+    logger.info("Anomaly detector training completed.")
+    return detector
+
+
 def print_evaluation_summary(
     train_metrics: Dict[str, Any],
     test_metrics: Dict[str, Any],
@@ -276,6 +322,11 @@ def run_training_pipeline(
     ensure_directory(MODELS_DIR)
     save_artifact(model, model_output_path)
     
+    # 5b. Train and save anomaly detector (unsupervised, labels ignored)
+    anomaly_detector = train_anomaly_detector(X_train)
+    anomaly_detector.save(ANOMALY_MODEL_FILE)
+    logger.info(f"Anomaly detector saved to {Path(ANOMALY_MODEL_FILE).resolve()}")
+
     metrics_payload = {
         "trained_at": datetime.now(timezone.utc).isoformat(),
         "model_type": "RandomForestClassifier",

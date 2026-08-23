@@ -14,7 +14,9 @@ psycopg2-binary
 
 # RAG / Embeddings
 sentence-transformers
-numpy
 
 # Vector store
 chromadb
+
+# Model explainability
+shap

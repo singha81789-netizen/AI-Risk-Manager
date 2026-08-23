@@ -121,3 +121,23 @@ export interface ApiAuditLogEntry {
   details: Record<string, unknown> | null;
   model_version: string | null;
 }
+
+// --- Model Explainability types ---
+
+export interface FeatureFactor {
+  feature: string;
+  raw_feature: string;
+  contribution: number;
+  feature_value: unknown;
+  direction: 'increases_risk' | 'decreases_risk';
+}
+
+export interface ModelExplanation {
+  transaction_id: string;
+  fraud_probability: number;
+  risk_score: number;
+  factors: FeatureFactor[];
+  base_value: number;
+  model_version: string;
+  source: 'model';
+}

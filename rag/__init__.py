@@ -1,28 +1,24 @@
 """
 RAG (Retrieval-Augmented Generation) module for the AI Risk Manager.
 
-Provides document ingestion, validation, chunking, and embedding for the
-fraud knowledge base.  The retrieval and generation layers are not yet
-implemented — this module covers the ingestion-to-embedding pipeline.
+Provides document ingestion, validation, chunking, embedding, retrieval,
+and question-answering for the fraud knowledge base.
 
-Quick start::
+Quick start — ask a question::
+
+    from rag import RAGPipeline
+
+    pipeline = RAGPipeline()
+    response = pipeline.ask("What is the velocity threshold for fraud alerts?")
+    print(response.answer)
+    for c in response.citations:
+        print(f"  [{c.source_filename}] {c.source_heading}")
+
+Build the index::
 
     from rag import build_index
 
-    # One-call pipeline: load -> chunk -> embed
     result = build_index()
-
-    # Access embeddings
-    matrix = result.embeddings_matrix        # (n_chunks, dim) numpy array
-    chunks  = result.embedded_chunks         # list[EmbeddedChunk]
-
-Individual steps are also available::
-
-    from rag import validate_kb, load_kb_documents, chunk_kb_documents, embed_chunks
-
-    docs   = load_kb_documents()
-    chunks = chunk_kb_documents(docs)
-    embedded = embed_chunks(chunks)
 """
 
 from rag.document_loader import (
@@ -52,6 +48,17 @@ from rag.vector_store import (
     VectorStore,
     VectorStoreConfig,
 )
+from rag.retriever import (
+    Retriever,
+    RetrieverConfig,
+    RetrievalResult,
+)
+from rag.rag_pipeline import (
+    Citation,
+    RAGPipeline,
+    RAGPipelineConfig,
+    RAGResponse,
+)
 
 __all__ = [
     # Document loading
@@ -77,6 +84,15 @@ __all__ = [
     "VectorStoreConfig",
     "SearchHit",
     "IndexResult",
+    # Retriever
+    "Retriever",
+    "RetrieverConfig",
+    "RetrievalResult",
+    # RAG pipeline
+    "RAGPipeline",
+    "RAGPipelineConfig",
+    "RAGResponse",
+    "Citation",
     # Convenience aliases
     "validate_kb",
     "load_kb_documents",

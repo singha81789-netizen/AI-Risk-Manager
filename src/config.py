@@ -142,3 +142,26 @@ VECTOR_STORE_PERSIST_DIR = os.getenv(
 
 # Distance metric: "cosine", "l2", or "ip" (inner product).
 VECTOR_STORE_DISTANCE = os.getenv("VECTOR_STORE_DISTANCE", "cosine")
+
+# ---------------------------------------------------------------------------
+# RAG Question-Answering Pipeline Configuration
+# ---------------------------------------------------------------------------
+
+# LLM provider for answer generation: "openai" or "null" (offline fallback).
+RAG_LLM_PROVIDER = os.getenv("RAG_LLM_PROVIDER", "null")
+
+# LLM model identifier (provider-dependent).
+# OpenAI examples: "gpt-4o-mini", "gpt-4o", "gpt-3.5-turbo"
+RAG_LLM_MODEL = os.getenv("RAG_LLM_MODEL", "gpt-4o-mini")
+
+# Sampling temperature for the LLM (lower = more deterministic).
+RAG_LLM_TEMPERATURE = float(os.getenv("RAG_LLM_TEMPERATURE", "0.1"))
+
+# Maximum tokens in the generated answer.
+RAG_LLM_MAX_TOKENS = int(os.getenv("RAG_LLM_MAX_TOKENS", "512"))
+
+# Number of context chunks to retrieve for each question.
+RAG_TOP_K = int(os.getenv("RAG_TOP_K", "5"))
+
+# Minimum similarity score (0–1) for a chunk to be included as context.
+RAG_MIN_RELEVANCE = float(os.getenv("RAG_MIN_RELEVANCE", "0.25"))

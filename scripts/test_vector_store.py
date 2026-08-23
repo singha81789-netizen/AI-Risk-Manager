@@ -1,12 +1,18 @@
 """End-to-end integration test for the RAG vector store."""
 
 import sys
+import os
+import warnings
 from pathlib import Path
 
 # Ensure project root is on sys.path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
+
+# Suppress noisy ChromaDB/HuggingFace logs
+os.environ["ANONYMIZED_TELEMETRY"] = "False"
+warnings.filterwarnings("ignore")
 
 from rag.document_loader import validate_knowledge_base, load_documents
 from rag.chunking import ChunkConfig, chunk_documents
@@ -60,7 +66,8 @@ hits = store.search("high-value suspicious international transactions", top_k=3)
 for i, h in enumerate(hits):
     print(f"  #{i+1} score={h.score:.4f} chunk_id={h.chunk_id}")
     print(f"       source={h.source_filename}, heading={h.source_heading}")
-    print(f"       text={h.text[:80]}...")
+    safe_text = h.text[:80].encode("ascii", "replace").decode("ascii")
+    print(f"       text={safe_text}...")
 
 print()
 print("--- Test 8: Collection stats ---")

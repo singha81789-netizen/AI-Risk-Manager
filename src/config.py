@@ -105,3 +105,40 @@ KB_SUPPORTED_EXTENSIONS = {".md", ".txt", ".csv"}
 # RAG chunking defaults (overridden at chunk time via ChunkConfig).
 KB_CHUNK_MAX_CHARS = int(os.getenv("KB_CHUNK_MAX_CHARS", "1000"))
 KB_CHUNK_OVERLAP_CHARS = int(os.getenv("KB_CHUNK_OVERLAP_CHARS", "200"))
+
+# ---------------------------------------------------------------------------
+# Embedding Pipeline Configuration
+# ---------------------------------------------------------------------------
+
+# Embedding provider: "sentence-transformers" (local) or "openai" (API).
+EMBEDDING_PROVIDER = os.getenv("EMBEDDING_PROVIDER", "sentence-transformers")
+
+# Model name — default depends on provider.
+# sentence-transformers: "all-MiniLM-L6-v2" (384-dim, 22 M params)
+# openai: "text-embedding-3-small" (1536-dim)
+EMBEDDING_MODEL_NAME = os.getenv(
+    "EMBEDDING_MODEL_NAME", "all-MiniLM-L6-v2"
+)
+
+# Batch size for embedding inference.
+EMBEDDING_BATCH_SIZE = int(os.getenv("EMBEDDING_BATCH_SIZE", "32"))
+
+# Torch device for local embeddings ("cpu", "cuda", "mps").
+EMBEDDING_DEVICE = os.getenv("EMBEDDING_DEVICE", "cpu")
+
+# ---------------------------------------------------------------------------
+# Vector Store (ChromaDB) Configuration
+# ---------------------------------------------------------------------------
+
+# ChromaDB collection name for knowledge-base chunks.
+VECTOR_STORE_COLLECTION = os.getenv(
+    "VECTOR_STORE_COLLECTION", "knowledge_base"
+)
+
+# On-disk persistence directory for ChromaDB.
+VECTOR_STORE_PERSIST_DIR = os.getenv(
+    "VECTOR_STORE_PERSIST_DIR", "data/chroma_db"
+)
+
+# Distance metric: "cosine", "l2", or "ip" (inner product).
+VECTOR_STORE_DISTANCE = os.getenv("VECTOR_STORE_DISTANCE", "cosine")

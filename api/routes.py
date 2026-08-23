@@ -2,14 +2,17 @@
 Pydantic schemas and prediction endpoint for the AI Risk Manager API.
 """
 
+import json
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from src.anomaly_detection import AnomalyDetector
-from src.config import ANOMALY_MODEL_FILE, MODEL_FILE, PREPROCESSOR_FILE
+from src.config import ANOMALY_MODEL_FILE, MODEL_FILE, MODEL_VERSION, PREPROCESSOR_FILE
+from src.database import get_db_session
 from src.model_inference import FraudPredictor
+from src.models_db import RiskPrediction, Transaction
 from src.utils import load_artifact, logger
 
 router = APIRouter()
@@ -175,5 +178,41 @@ def predict_transaction(payload: TransactionRequest) -> PredictionResponse:
                 )
         except Exception as exc:
             logger.warning(f"Anomaly detection skipped: {exc}")
+
+    # Persist transaction and prediction to the database
+    try:
+        with get_db_session() as session:
+            txn_record = Transaction(
+                transaction_id=payload.transaction_id,
+                customer_id=payload.customer_id,
+                merchant_id=payload.merchant_id,
+                timestamp=payload.timestamp,
+                age=payload.age,
+                gender=payload.gender,
+                merchant_category=payload.merchant_category,
+                amount=payload.amount,
+                transaction_type=payload.transaction_type,
+                card_type=payload.card_type,
+                card_present=payload.card_present,
+                device_type=payload.device_type,
+                distance_from_home=payload.distance_from_home,
+                distance_from_last_transaction=payload.distance_from_last_transaction,
+                high_risk_country=payload.high_risk_country,
+                velocity_last_24h=payload.velocity_last_24h,
+            )
+            session.add(txn_record)
+
+            prediction_record = RiskPrediction(
+                transaction_id=response.transaction_id,
+                fraud_probability=response.fraud_probability,
+                risk_score=response.risk_score,
+                risk_level=response.risk_level,
+                prediction=response.decision,
+                triggered_risk_factors=json.dumps(response.triggered_risk_factors),
+                model_version=MODEL_VERSION,
+            )
+            session.add(prediction_record)
+    except Exception as exc:
+        logger.warning(f"Failed to persist prediction to database: {exc}")
 
     return response

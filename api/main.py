@@ -14,6 +14,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from api.routes import _load_models, router
+from src.database import create_tables, init_engine
 from src.utils import logger
 
 
@@ -28,7 +29,18 @@ async def lifespan(app: FastAPI):
     Models are loaded eagerly so the first request does not pay the cold-start
     penalty.  If the training artifacts do not exist the API still boots but
     ``POST /predict`` will return 503 until they are generated.
+
+    The database engine is also initialised and tables are created on startup
+    so the prediction log is ready before the first request arrives.
     """
+    logger.info("Initialising database engine …")
+    try:
+        engine = init_engine()
+        create_tables(engine)
+        logger.info("Database tables created / verified.")
+    except Exception as exc:
+        logger.warning(f"Database initialisation failed — predictions will not be persisted: {exc}")
+
     logger.info("Loading trained model artifacts …")
     _load_models()
     logger.info("AI Risk Manager API is ready.")

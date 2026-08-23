@@ -2,7 +2,12 @@
 Configuration settings, column schemas, and file path definitions for the AI Risk Manager project.
 """
 
+import os
 from pathlib import Path
+
+from dotenv import load_dotenv
+
+load_dotenv()
 
 # Base Paths
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -75,3 +80,13 @@ ANOMALY_CONTAMINATION = 0.05   # Expected proportion of outliers in training dat
 ANOMALY_SCORE_MIN = -1.0       # Raw score lower bound (most anomalous)
 ANOMALY_SCORE_MAX =  1.0       # Raw score upper bound (most normal)
 ANOMALY_MODEL_FILE = MODELS_DIR / "anomaly_detector.joblib"
+
+# Database Configuration (PostgreSQL via environment variables)
+POSTGRES_USER = os.getenv("POSTGRES_USER", "postgres")
+POSTGRES_PASSWORD = os.getenv("POSTGRES_PASSWORD", "")
+POSTGRES_HOST = os.getenv("POSTGRES_HOST", "localhost")
+POSTGRES_PORT = os.getenv("POSTGRES_PORT", "5432")
+POSTGRES_DB = os.getenv("POSTGRES_DB", "ai_risk_manager")
+
+# Model version identifier persisted with each prediction
+MODEL_VERSION = os.getenv("MODEL_VERSION", "1.0.0")

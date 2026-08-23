@@ -9,6 +9,12 @@ from src.data_loader import (
     split_features_and_target,
     validate_schema,
 )
+from src.database import (
+    create_tables,
+    get_db_session,
+    get_engine,
+    init_engine,
+)
 from src.feature_engineering import (
     DomainFeatureExtractor,
     TemporalFeatureExtractor,
@@ -22,6 +28,7 @@ from src.model_training import (
     run_training_pipeline,
     train_fraud_model,
 )
+from src.models_db import Base, RiskPrediction, Transaction
 
 __all__ = [
     "load_raw_data",
@@ -38,4 +45,11 @@ __all__ = [
     "evaluate_classification_performance",
     "run_training_pipeline",
     "FraudPredictor",
+    "Base",
+    "Transaction",
+    "RiskPrediction",
+    "init_engine",
+    "get_engine",
+    "create_tables",
+    "get_db_session",
 ]

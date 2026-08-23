@@ -1,5 +1,5 @@
 {
-  "trained_at": "2026-08-22T17:13:17.784678+00:00",
+  "trained_at": "2026-08-23T08:21:37.286288+00:00",
   "model_type": "RandomForestClassifier",
   "hyperparameters": {
     "n_estimators": 150,

@@ -9,6 +9,57 @@ AI Risk Manager is an end-to-end financial fraud detection and risk scoring plat
 ### 1. Prerequisites
 - Python 3.10+ (or Python 3.11/3.12)
 - Git
+- PostgreSQL 14+ (for prediction persistence)
+
+---
+
+### 2. PostgreSQL Setup (Local Development)
+
+#### Option A — Install PostgreSQL Locally
+
+1. Download and install [PostgreSQL](https://www.postgresql.org/download/) (includes `pgAdmin` and the `psql` CLI).
+
+2. Create a database and user:
+   ```sql
+   -- Connect as the default superuser
+   psql -U postgres
+
+   CREATE USER ai_risk_user WITH PASSWORD 'your_password';
+   CREATE DATABASE ai_risk_manager OWNER ai_risk_user;
+   GRANT ALL PRIVILEGES ON DATABASE ai_risk_manager TO ai_risk_user;
+   \q
+   ```
+
+3. Copy the example environment file and fill in your credentials:
+   ```bash
+   cp .env.example .env
+   # Edit .env with your actual PostgreSQL credentials
+   ```
+
+   > **Important:** Never commit `.env` to version control. It is already listed in `.gitignore`.
+
+#### Option B — Docker (No Local Install)
+
+```bash
+docker run -d \
+  --name ai-risk-pg \
+  -e POSTGRES_USER=postgres \
+  -e POSTGRES_PASSWORD=changeme \
+  -e POSTGRES_DB=ai_risk_manager \
+  -p 5432:5432 \
+  postgres:16-alpine
+```
+
+Then create the `.env` file matching these credentials.
+
+#### Tables
+
+The application automatically creates two tables on startup:
+
+| Table | Description |
+|---|---|
+| `transactions` | Raw transaction data received by the API |
+| `risk_predictions` | Model output — fraud probability, risk score, decision, and model version |
 
 ---
 
@@ -92,9 +143,11 @@ ai-risk-manager/
 │   ├── __init__.py
 │   ├── config.py
 │   ├── data_loader.py
+│   ├── database.py
 │   ├── feature_engineering.py
 │   ├── model_training.py
 │   ├── model_inference.py
+│   ├── models_db.py
 │   ├── anomaly_detection.py
 │   ├── risk_scoring.py
 │   ├── explainability.py
@@ -118,6 +171,7 @@ ai-risk-manager/
 │   ├── test_model.py
 │   └── test_api.py
 ├── .env
+├── .env.example
 ├── .gitignore
 ├── requirements.txt
 ├── README.md

@@ -81,6 +81,66 @@ ANOMALY_SCORE_MIN = -1.0       # Raw score lower bound (most anomalous)
 ANOMALY_SCORE_MAX =  1.0       # Raw score upper bound (most normal)
 ANOMALY_MODEL_FILE = MODELS_DIR / "anomaly_detector.joblib"
 
+# ---------------------------------------------------------------------------
+# Model Monitoring Configuration
+# ---------------------------------------------------------------------------
+
+# Reference data for baseline comparison
+REFERENCE_DATA_FILE = TEST_PROCESSED_FILE  # held-out test set as reference
+REFERENCE_METRICS_FILE = MODEL_METRICS_FILE
+REFERENCE_FEATURE_IMPORTANCES_FILE = FEATURE_IMPORTANCES_FILE
+MONITORING_REPORT_DIR = PROJECT_ROOT / "reports" / "monitoring"
+
+# Minimum number of production predictions required before monitoring runs.
+# Prevents drift analysis on statistically insignificant samples.
+MONITORING_MIN_SAMPLES = 50
+
+# Performance drift thresholds — alert when metric degrades beyond these.
+MONITOR_PRECISION_THRESHOLD = 0.05   # absolute drop from reference
+MONITOR_RECALL_THRESHOLD = 0.05
+MONITOR_F1_THRESHOLD = 0.05
+MONITOR_FPR_THRESHOLD = 0.03         # absolute increase from reference
+
+# Prediction distribution drift thresholds
+MONITOR_PROBABILITY_DRIFT_THRESHOLD = 0.10   # PSI threshold for prediction distribution
+MONITOR_RISK_LEVEL_DRIFT_THRESHOLD = 0.05    # absolute shift in HIGH-risk proportion
+
+# Feature distribution drift thresholds (Population Stability Index)
+MONITOR_FEATURE_PSI_WARN = 0.10     # PSI > this => WARNING
+MONITOR_FEATURE_PSI_ALERT = 0.20    # PSI > this => ALERT (retrain recommended)
+
+# KS test p-value below which a feature distribution is considered shifted
+MONITOR_KS_SIGNIFICANCE = 0.05
+
+# Monitoring window — how far back to look in production data (in hours)
+MONITORING_WINDOW_HOURS = int(os.getenv("MONITORING_WINDOW_HOURS", "168"))  # 7 days
+
+# ---------------------------------------------------------------------------
+# Model Retraining Configuration
+# ---------------------------------------------------------------------------
+
+# Minimum confirmed analyst labels required before retraining can proceed.
+# Ensures statistical significance of the new training signal.
+RETRAINING_MIN_LABELED_SAMPLES = int(os.getenv("RETRAINING_MIN_LABELED_SAMPLES", "50"))
+
+# Minimum fraud cases required in the labeled dataset.
+RETRAINING_MIN_FRAUD_SAMPLES = int(os.getenv("RETRAINING_MIN_FRAUD_SAMPLES", "10"))
+
+# Maximum fraction of original training data that confirmed labels can
+# represent.  Prevents overwriting the original distribution with a
+# small, potentially biased set of analyst-confirmed cases.
+RETRAINING_MAX_LABEL_FRACTION = float(os.getenv("RETRAINING_MAX_LABEL_FRACTION", "0.5"))
+
+# Minimum improvement in F1-score required to promote a candidate model.
+# Set to 0.0 to allow any non-degrading model.
+RETRAINING_F1_IMPROVEMENT_THRESHOLD = float(
+    os.getenv("RETRAINING_F1_IMPROVEMENT_THRESHOLD", "0.0")
+)
+
+# Directories for versioned model storage
+RETRAINING_VERSIONS_DIR = MODELS_DIR / "versions"
+RETRAINING_REPORTS_DIR = PROJECT_ROOT / "reports" / "retraining"
+
 # Database Configuration (PostgreSQL via environment variables)
 POSTGRES_USER = os.getenv("POSTGRES_USER", "postgres")
 POSTGRES_PASSWORD = os.getenv("POSTGRES_PASSWORD", "")

@@ -1,0 +1,17 @@
+{
+  "generated_at": "2026-08-23T12:48:57.436797+00:00",
+  "model_version": "1.0.0",
+  "reference_sample_count": 2000,
+  "production_sample_count": 0,
+  "performance_metrics": {},
+  "reference_metrics": {},
+  "performance_drifts": [],
+  "prediction_distribution": {},
+  "prediction_distribution_drift": null,
+  "feature_drifts": [],
+  "risk_level_distribution": {},
+  "risk_level_drift": null,
+  "overall_severity": "OK",
+  "retrain_recommended": false,
+  "retrain_reasons": []
+}

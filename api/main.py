@@ -14,7 +14,9 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from api.routes import _load_models, router
+from src.audit import log_event
 from src.database import create_tables, init_engine
+from src.models_db import EventType
 from src.utils import logger
 
 
@@ -44,7 +46,9 @@ async def lifespan(app: FastAPI):
     logger.info("Loading trained model artifacts …")
     _load_models()
     logger.info("AI Risk Manager API is ready.")
+    log_event(event_type=EventType.SYSTEM_STARTUP, actor="system")
     yield
+    log_event(event_type=EventType.SYSTEM_SHUTDOWN, actor="system")
     logger.info("Shutting down AI Risk Manager API.")
 
 

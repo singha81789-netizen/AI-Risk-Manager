@@ -1,5 +1,5 @@
 """
-SQLAlchemy ORM models for persistent storage of transactions and risk predictions.
+SQLAlchemy ORM models for persistent storage of transactions, risk predictions, and audit logs.
 """
 
 from datetime import datetime, timezone
@@ -74,4 +74,45 @@ class RiskPrediction(Base):
         return (
             f"<RiskPrediction(id={self.id}, transaction_id={self.transaction_id}, "
             f"risk_level={self.risk_level})>"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Event type constants for audit logging
+# ---------------------------------------------------------------------------
+
+class EventType:
+    """Canonical event type identifiers stored in audit_logs.event_type."""
+
+    TRANSACTION_RECEIVED = "transaction_received"
+    PREDICTION_GENERATED = "prediction_generated"
+    RISK_SCORE_GENERATED = "risk_score_generated"
+    TRANSACTION_FLAGGED = "transaction_flagged"
+    ANALYST_REVIEW = "analyst_review"
+    ANALYST_DECISION = "analyst_decision"
+    SYSTEM_STARTUP = "system_startup"
+    SYSTEM_SHUTDOWN = "system_shutdown"
+
+
+class AuditLog(Base):
+    """Immutable audit trail of important system and analyst actions."""
+
+    __tablename__ = "audit_logs"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    event_type = Column(String(64), nullable=False, index=True)
+    transaction_id = Column(String(128), nullable=True, index=True)
+    actor = Column(String(128), nullable=False)
+    timestamp = Column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        nullable=False,
+    )
+    details = Column(Text, nullable=True)
+    model_version = Column(String(64), nullable=True)
+
+    def __repr__(self) -> str:
+        return (
+            f"<AuditLog(id={self.id}, event_type={self.event_type}, "
+            f"transaction_id={self.transaction_id}, actor={self.actor})>"
         )

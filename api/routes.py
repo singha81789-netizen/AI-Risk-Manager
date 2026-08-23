@@ -1,5 +1,5 @@
 """
-Pydantic schemas and prediction endpoint for the AI Risk Manager API.
+Pydantic schemas, prediction endpoint, and analyst workflow for the AI Risk Manager API.
 """
 
 import json
@@ -9,10 +9,18 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from src.anomaly_detection import AnomalyDetector
+from src.audit import (
+    log_analyst_decision,
+    log_analyst_review,
+    log_prediction_generated,
+    log_risk_score_generated,
+    log_transaction_flagged,
+    log_transaction_received,
+)
 from src.config import ANOMALY_MODEL_FILE, MODEL_FILE, MODEL_VERSION, PREPROCESSOR_FILE
 from src.database import get_db_session
 from src.model_inference import FraudPredictor
-from src.models_db import RiskPrediction, Transaction
+from src.models_db import AuditLog, RiskPrediction, Transaction
 from src.utils import load_artifact, logger
 
 router = APIRouter()
@@ -155,6 +163,13 @@ def predict_transaction(payload: TransactionRequest) -> PredictionResponse:
     predictor = _get_predictor()
     txn_dict = payload.model_dump()
 
+    # Audit: transaction received
+    log_transaction_received(
+        transaction_id=payload.transaction_id,
+        actor="api",
+        details={"amount": payload.amount, "merchant_category": payload.merchant_category},
+    )
+
     try:
         result = predictor.score_transaction(txn_dict)
     except Exception as exc:
@@ -162,6 +177,22 @@ def predict_transaction(payload: TransactionRequest) -> PredictionResponse:
         raise HTTPException(status_code=500, detail=f"Prediction failed: {exc}")
 
     response = PredictionResponse(**result)
+
+    # Audit: prediction generated
+    log_prediction_generated(
+        transaction_id=response.transaction_id,
+        fraud_probability=response.fraud_probability,
+        risk_score=response.risk_score,
+        risk_level=response.risk_level,
+        decision=response.decision,
+    )
+
+    # Audit: risk score generated
+    log_risk_score_generated(
+        transaction_id=response.transaction_id,
+        risk_score=response.risk_score,
+        risk_level=response.risk_level,
+    )
 
     # Optional anomaly detection
     detector = _get_detector()
@@ -215,4 +246,148 @@ def predict_transaction(payload: TransactionRequest) -> PredictionResponse:
     except Exception as exc:
         logger.warning(f"Failed to persist prediction to database: {exc}")
 
+    # Audit: transaction flagged (when risk level is HIGH)
+    if response.risk_level == "HIGH":
+        log_transaction_flagged(
+            transaction_id=response.transaction_id,
+            risk_level=response.risk_level,
+            triggered_risk_factors=response.triggered_risk_factors,
+        )
+
     return response
+
+
+# ---------------------------------------------------------------------------
+# Analyst review / decision schemas
+# ---------------------------------------------------------------------------
+
+class AnalystReviewRequest(BaseModel):
+    """Payload submitted by an analyst when reviewing a flagged transaction."""
+
+    transaction_id: str = Field(..., description="Transaction being reviewed")
+    analyst_id: str = Field(..., description="Unique identifier of the analyst")
+    notes: Optional[str] = Field(None, description="Free-text review notes")
+
+
+class AnalystDecisionRequest(BaseModel):
+    """Final decision submitted by an analyst after review."""
+
+    transaction_id: str = Field(..., description="Transaction being decided on")
+    analyst_id: str = Field(..., description="Unique identifier of the analyst")
+    decision: str = Field(
+        ...,
+        description="Final decision: CONFIRM_FRAUD, FALSE_POSITIVE, or ESCALATE",
+    )
+    notes: Optional[str] = Field(None, description="Free-text decision notes")
+
+
+class AnalystReviewResponse(BaseModel):
+    """Response returned after an analyst review or decision is recorded."""
+
+    transaction_id: str
+    event_type: str
+    actor: str
+    status: str
+
+
+# ---------------------------------------------------------------------------
+# Analyst endpoints
+# ---------------------------------------------------------------------------
+
+@router.post(
+    "/analyst/review",
+    response_model=AnalystReviewResponse,
+    summary="Record an analyst review of a flagged transaction",
+    tags=["Analyst"],
+)
+def analyst_review(payload: AnalystReviewRequest) -> AnalystReviewResponse:
+    """An analyst signals they are reviewing a flagged transaction.
+
+    This is an audit-trail event -- it does not modify the prediction,
+    only records that a human review has begun.
+    """
+    log_analyst_review(
+        transaction_id=payload.transaction_id,
+        analyst_id=payload.analyst_id,
+        notes=payload.notes,
+    )
+    return AnalystReviewResponse(
+        transaction_id=payload.transaction_id,
+        event_type="analyst_review",
+        actor=payload.analyst_id,
+        status="recorded",
+    )
+
+
+@router.post(
+    "/analyst/decision",
+    response_model=AnalystReviewResponse,
+    summary="Record the final analyst decision on a transaction",
+    tags=["Analyst"],
+)
+def analyst_decision(payload: AnalystDecisionRequest) -> AnalystReviewResponse:
+    """An analyst submits a final decision for a reviewed transaction.
+
+    Valid decisions: CONFIRM_FRAUD, FALSE_POSITIVE, ESCALATE.
+    """
+    valid_decisions = {"CONFIRM_FRAUD", "FALSE_POSITIVE", "ESCALATE"}
+    if payload.decision not in valid_decisions:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid decision '{payload.decision}'. Must be one of: {sorted(valid_decisions)}",
+        )
+
+    log_analyst_decision(
+        transaction_id=payload.transaction_id,
+        analyst_id=payload.analyst_id,
+        decision=payload.decision,
+        notes=payload.notes,
+    )
+    return AnalystReviewResponse(
+        transaction_id=payload.transaction_id,
+        event_type="analyst_decision",
+        actor=payload.analyst_id,
+        status="recorded",
+    )
+
+
+@router.get(
+    "/audit/logs",
+    summary="Retrieve audit logs (optionally filtered by transaction_id)",
+    tags=["Audit"],
+)
+def get_audit_logs(
+    transaction_id: Optional[str] = None,
+    limit: int = 50,
+) -> List[Dict[str, Any]]:
+    """Return recent audit log entries.
+
+    Pass ``transaction_id`` to filter logs for a specific transaction.
+    ``limit`` caps the number of rows returned (default 50, max 500).
+    """
+    limit = min(limit, 500)
+    try:
+        with get_db_session() as session:
+            query = session.query(AuditLog)
+            if transaction_id:
+                query = query.filter(AuditLog.transaction_id == transaction_id)
+            rows = (
+                query.order_by(AuditLog.timestamp.desc())
+                .limit(limit)
+                .all()
+            )
+            return [
+                {
+                    "id": r.id,
+                    "event_type": r.event_type,
+                    "transaction_id": r.transaction_id,
+                    "actor": r.actor,
+                    "timestamp": r.timestamp.isoformat() if r.timestamp else None,
+                    "details": json.loads(r.details) if r.details else None,
+                    "model_version": r.model_version,
+                }
+                for r in rows
+            ]
+    except Exception as exc:
+        logger.error(f"Failed to fetch audit logs: {exc}")
+        raise HTTPException(status_code=500, detail="Failed to retrieve audit logs")

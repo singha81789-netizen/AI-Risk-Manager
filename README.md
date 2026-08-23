@@ -54,12 +54,13 @@ Then create the `.env` file matching these credentials.
 
 #### Tables
 
-The application automatically creates two tables on startup:
+The application automatically creates three tables on startup:
 
 | Table | Description |
 |---|---|
 | `transactions` | Raw transaction data received by the API |
-| `risk_predictions` | Model output — fraud probability, risk score, decision, and model version |
+| `risk_predictions` | Model output -- fraud probability, risk score, decision, and model version |
+| `audit_logs` | Immutable audit trail of system and analyst actions |
 
 ---
 
@@ -129,6 +130,18 @@ python -m unittest discover -s tests
 
 ---
 
+### 5. API Endpoints
+
+| Method | Endpoint | Tag | Description |
+|---|---|---|---|
+| `GET` | `/health` | Operations | Liveness probe |
+| `POST` | `/predict` | Prediction | Score a transaction for fraud risk |
+| `POST` | `/analyst/review` | Analyst | Record that an analyst is reviewing a flagged transaction |
+| `POST` | `/analyst/decision` | Analyst | Record the final analyst decision (CONFIRM_FRAUD / FALSE_POSITIVE / ESCALATE) |
+| `GET` | `/audit/logs` | Audit | Retrieve audit log entries (optional `transaction_id` filter) |
+
+---
+
 ## 📁 Project Structure
 
 ```text
@@ -141,6 +154,7 @@ ai-risk-manager/
 │   └── EDA.ipynb
 ├── src/
 │   ├── __init__.py
+│   ├── audit.py
 │   ├── config.py
 │   ├── data_loader.py
 │   ├── database.py

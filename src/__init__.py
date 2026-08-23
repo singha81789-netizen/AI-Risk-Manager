@@ -2,6 +2,15 @@
 AI Risk Manager core modules.
 """
 
+from src.audit import (
+    log_analyst_decision,
+    log_analyst_review,
+    log_event,
+    log_prediction_generated,
+    log_risk_score_generated,
+    log_transaction_flagged,
+    log_transaction_received,
+)
 from src.data_loader import (
     clean_raw_data,
     load_and_clean_data,
@@ -28,7 +37,7 @@ from src.model_training import (
     run_training_pipeline,
     train_fraud_model,
 )
-from src.models_db import Base, RiskPrediction, Transaction
+from src.models_db import AuditLog, Base, EventType, RiskPrediction, Transaction
 
 __all__ = [
     "load_raw_data",
@@ -48,8 +57,17 @@ __all__ = [
     "Base",
     "Transaction",
     "RiskPrediction",
+    "AuditLog",
+    "EventType",
     "init_engine",
     "get_engine",
     "create_tables",
     "get_db_session",
+    "log_event",
+    "log_transaction_received",
+    "log_prediction_generated",
+    "log_risk_score_generated",
+    "log_transaction_flagged",
+    "log_analyst_review",
+    "log_analyst_decision",
 ]

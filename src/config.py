@@ -90,3 +90,18 @@ POSTGRES_DB = os.getenv("POSTGRES_DB", "ai_risk_manager")
 
 # Model version identifier persisted with each prediction
 MODEL_VERSION = os.getenv("MODEL_VERSION", "1.0.0")
+
+# ---------------------------------------------------------------------------
+# Knowledge Base Configuration
+# ---------------------------------------------------------------------------
+
+# Minimum number of documents required in the knowledge base at startup.
+# Set to 0 to disable the check (useful for development).
+KB_MIN_DOCUMENTS = int(os.getenv("KB_MIN_DOCUMENTS", "1"))
+
+# Supported file extensions for knowledge base documents.
+KB_SUPPORTED_EXTENSIONS = {".md", ".txt", ".csv"}
+
+# RAG chunking defaults (overridden at chunk time via ChunkConfig).
+KB_CHUNK_MAX_CHARS = int(os.getenv("KB_CHUNK_MAX_CHARS", "1000"))
+KB_CHUNK_OVERLAP_CHARS = int(os.getenv("KB_CHUNK_OVERLAP_CHARS", "200"))

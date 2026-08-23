@@ -15,6 +15,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from api.routes import _load_models, router
 from src.audit import log_event
+from src.config import KB_MIN_DOCUMENTS
 from src.database import create_tables, init_engine
 from src.models_db import EventType
 from src.utils import logger
@@ -46,6 +47,27 @@ async def lifespan(app: FastAPI):
     logger.info("Loading trained model artifacts …")
     _load_models()
     logger.info("AI Risk Manager API is ready.")
+
+    # Validate knowledge base documents exist
+    try:
+        from rag.document_loader import validate_knowledge_base
+        kb_result = validate_knowledge_base()
+        if kb_result.is_valid:
+            logger.info(
+                f"Knowledge base validated: {kb_result.doc_count} document(s) loaded."
+            )
+        elif kb_result.doc_count < KB_MIN_DOCUMENTS:
+            logger.warning(
+                f"Knowledge base has {kb_result.doc_count} document(s), "
+                f"minimum required is {KB_MIN_DOCUMENTS}. "
+                f"RAG retrieval will not function."
+            )
+        if kb_result.errors:
+            for err in kb_result.errors:
+                logger.warning(f"KB validation: {err}")
+    except Exception as exc:
+        logger.warning(f"Knowledge base validation skipped: {exc}")
+
     log_event(event_type=EventType.SYSTEM_STARTUP, actor="system")
     yield
     log_event(event_type=EventType.SYSTEM_SHUTDOWN, actor="system")

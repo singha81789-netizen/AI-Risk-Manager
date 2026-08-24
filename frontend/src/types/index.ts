@@ -214,3 +214,28 @@ export interface ReportSummary {
   top_riskiest_transactions: Record<string, unknown>[];
   category_breakdown: Record<string, unknown>[];
 }
+
+// --- AI Models types ---
+
+export interface AiModel {
+  id: string;
+  name: string;
+  description: string;
+  accuracy: number | null;
+  status: 'active' | 'training' | 'inactive';
+  type: 'primary' | 'secondary' | 'standard';
+  last_updated: string;
+}
+
+export interface ModelPerformancePoint {
+  date: string;
+  isolationForest: number;
+  lof: number;
+  dbscan: number;
+  randomForest: number;
+}
+
+export interface RiskThresholds {
+  overall_risk_sensitivity: number;
+  high_risk_threshold: number;
+}

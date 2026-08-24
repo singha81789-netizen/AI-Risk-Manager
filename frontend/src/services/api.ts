@@ -13,6 +13,9 @@ import type {
   ApiAlert,
   AlertStats,
   ReportSummary,
+  AiModel,
+  ModelPerformancePoint,
+  RiskThresholds,
 } from '../types';
 
 const BASE_URL = '';
@@ -240,4 +243,40 @@ export async function getAuditLogs(
   if (transactionId) params.set('transaction_id', transactionId);
   params.set('limit', String(limit));
   return request(`/audit/logs?${params.toString()}`);
+}
+
+// --- AI Models ---
+export async function getAiModels(): Promise<AiModel[]> {
+  return request('/ai-models');
+}
+
+export async function getModelPerformance(): Promise<ModelPerformancePoint[]> {
+  return request('/ai-models/performance');
+}
+
+export async function getRiskThresholds(): Promise<RiskThresholds> {
+  return request('/ai-models/thresholds');
+}
+
+export async function updateRiskThresholds(
+  sensitivity: number,
+  highThreshold: number,
+): Promise<{ message: string }> {
+  return request('/ai-models/thresholds', {
+    method: 'POST',
+    body: JSON.stringify({
+      overall_risk_sensitivity: sensitivity,
+      high_risk_threshold: highThreshold,
+    }),
+  });
+}
+
+export async function toggleModelStatus(
+  modelId: string,
+  status: string,
+): Promise<{ message: string }> {
+  return request(`/ai-models/${modelId}/toggle`, {
+    method: 'POST',
+    body: JSON.stringify({ status }),
+  });
 }

@@ -81,7 +81,7 @@ export default function Sidebar({ open, onClose }: SidebarProps) {
           Alerts
         </NavLink>
         <NavLink
-          to="/fraud-detection"
+          to="/ai-models"
           onClick={onClose}
           className={({ isActive }) => isActive ? 'active' : ''}
         >

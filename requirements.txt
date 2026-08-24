@@ -21,3 +21,6 @@ chromadb
 
 # Model explainability
 shap
+
+# PDF report generation
+reportlab

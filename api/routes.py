@@ -8,7 +8,7 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
-from sqlalchemy import func
+from sqlalchemy import and_, func
 
 from src.anomaly_detection import AnomalyDetector
 from src.audit import (
@@ -686,12 +686,16 @@ def get_transactions(
             # Join transactions with their latest prediction
             query = (
                 session.query(Transaction, RiskPrediction)
+                .select_from(Transaction)
                 .join(
                     latest_pred_subq,
                     and_(
                         Transaction.transaction_id == latest_pred_subq.c.transaction_id,
-                        RiskPrediction.id == latest_pred_subq.c.max_id,
                     ),
+                )
+                .join(
+                    RiskPrediction,
+                    RiskPrediction.id == latest_pred_subq.c.max_id,
                 )
             )
 

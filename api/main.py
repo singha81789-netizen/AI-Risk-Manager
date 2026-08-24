@@ -17,6 +17,7 @@ from api.routes import _load_models, router
 from api.routes_upload import router as upload_router
 from api.routes_alerts import router as alerts_router
 from api.routes_reports import router as reports_router
+from api.routes_ai_models import router as ai_models_router
 from src.audit import log_event
 from src.config import KB_MIN_DOCUMENTS
 from src.database import create_tables, init_engine
@@ -50,6 +51,47 @@ async def lifespan(app: FastAPI):
     logger.info("Loading trained model artifacts …")
     _load_models()
     logger.info("AI Risk Manager API is ready.")
+
+    # Auto-generate alerts for existing high/medium risk transactions missing alerts
+    try:
+        import json as _json
+        from datetime import datetime, timezone
+        from src.database import get_db_session
+        from src.models_db import Alert, RiskPrediction, Transaction
+
+        with get_db_session() as session:
+            existing_alert_txn_ids = {a.transaction_id for a in session.query(Alert.transaction_id).all()}
+            flagged = (
+                session.query(RiskPrediction)
+                .filter(RiskPrediction.risk_level.in_(["HIGH", "MEDIUM"]))
+                .order_by(RiskPrediction.risk_score.desc())
+                .all()
+            )
+            created = 0
+            for pred in flagged:
+                if pred.transaction_id in existing_alert_txn_ids:
+                    continue
+                factors = None
+                if pred.triggered_risk_factors:
+                    try:
+                        factors = _json.loads(pred.triggered_risk_factors)
+                    except Exception:
+                        factors = [pred.triggered_risk_factors] if pred.triggered_risk_factors else None
+                alert = Alert(
+                    transaction_id=pred.transaction_id,
+                    risk_score=pred.risk_score,
+                    risk_level=pred.risk_level,
+                    reason=_json.dumps(factors) if factors else None,
+                    status="OPEN",
+                    created_at=datetime.now(timezone.utc),
+                )
+                session.add(alert)
+                created += 1
+            session.commit()
+            if created:
+                logger.info(f"Auto-created {created} alerts for existing flagged transactions.")
+    except Exception as exc:
+        logger.warning(f"Auto-alert generation skipped: {exc}")
 
     # Validate knowledge base documents exist
     try:
@@ -104,6 +146,7 @@ app.include_router(router)
 app.include_router(upload_router)
 app.include_router(alerts_router)
 app.include_router(reports_router)
+app.include_router(ai_models_router)
 
 
 # ---------------------------------------------------------------------------

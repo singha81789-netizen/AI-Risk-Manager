@@ -18,8 +18,8 @@ export default function Register() {
     setIsLoading(true)
     setTimeout(() => {
       setIsLoading(false)
-      navigate('/verify-email')
-    }, 1500)
+      navigate('/')
+    }, 800)
   }
 
   return (

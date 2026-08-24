@@ -1,158 +1,276 @@
-import { useNavigate } from 'react-router-dom'
-import {
-  getFraudStats,
-  getFlaggedTransactions,
-  getFraudTrends,
-  getCategoryRiskData,
-} from '../services/mockData'
-import StatCard from '../components/common/StatCard'
-import RiskBadge from '../components/common/RiskBadge'
-import RiskScoreBar from '../components/common/RiskScoreBar'
-import StatusBadge from '../components/common/StatusBadge'
-import FraudTrendChart from '../components/charts/FraudTrendChart'
-import RiskDistributionChart from '../components/charts/RiskDistributionChart'
-import CategoryRiskChart from '../components/charts/CategoryRiskChart'
-import { format } from 'date-fns'
-
-const icons = {
-  total: (
-    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="#6366f1" strokeWidth="2">
-      <line x1="12" y1="1" x2="12" y2="23" />
-      <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
-    </svg>
-  ),
-  flagged: (
-    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="#ef4444" strokeWidth="2">
-      <path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z" />
-      <line x1="4" y1="22" x2="4" y2="15" />
-    </svg>
-  ),
-  prevented: (
-    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="#22c55e" strokeWidth="2">
-      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
-    </svg>
-  ),
-  reviewed: (
-    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="#a855f7" strokeWidth="2">
-      <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
-      <polyline points="22 4 12 14.01 9 11.01" />
-    </svg>
-  ),
-  pending: (
-    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="#f59e0b" strokeWidth="2">
-      <circle cx="12" cy="12" r="10" />
-      <polyline points="12 6 12 12 16 14" />
-    </svg>
-  ),
-}
+import { useState, useEffect } from 'react'
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, BarChart, Bar } from 'recharts'
+import { getDashboardStats } from '../services/api'
+import type { ApiDashboardStats } from '../types'
 
 export default function Dashboard() {
-  const navigate = useNavigate()
-  const stats = getFraudStats()
-  const flagged = getFlaggedTransactions()
-  const trends = getFraudTrends()
-  const categoryRisk = getCategoryRiskData()
+  const [stats, setStats] = useState<ApiDashboardStats | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
-  const formatCurrency = (n: number) =>
-    new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(n)
+  useEffect(() => {
+    loadStats()
+  }, [])
 
-  const reviewedCount = flagged.filter((t) => t.analystDecision).length
-  const pendingCount = flagged.filter((t) => !t.analystDecision).length
+  async function loadStats() {
+    try {
+      setLoading(true)
+      const data = await getDashboardStats()
+      setStats(data)
+    } catch (err: any) {
+      setError(err.message || 'Failed to load dashboard data')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  if (loading) {
+    return (
+      <div className="dashboard-page">
+        <div className="loading-state">
+          <div className="spinner" />
+          <p>Loading dashboard data...</p>
+        </div>
+      </div>
+    )
+  }
+
+  if (error) {
+    return (
+      <div className="dashboard-page">
+        <div className="error-state">
+          <svg viewBox="0 0 24 24" width="48" height="48" fill="none" stroke="#ef4444" strokeWidth="2">
+            <circle cx="12" cy="12" r="10" />
+            <line x1="15" y1="9" x2="9" y2="15" />
+            <line x1="9" y1="9" x2="15" y2="15" />
+          </svg>
+          <p>{error}</p>
+          <button onClick={loadStats} className="retry-btn">Retry</button>
+        </div>
+      </div>
+    )
+  }
+
+  if (!stats) return null
+
+  const distributionData = [
+    { name: 'Low Risk', value: stats.lowRiskCount, color: '#10b981' },
+    { name: 'Medium Risk', value: stats.mediumRiskCount, color: '#f59e0b' },
+    { name: 'High Risk', value: stats.highRiskCount, color: '#ef4444' },
+  ]
+
+  const categoryData = stats.categoryRisk.map(c => ({
+    name: c.category,
+    count: c.transactionCount,
+    avgScore: c.riskScore,
+  }))
 
   return (
-    <div>
-      <div className="page-header">
-        <h2>Dashboard Overview</h2>
-        <p>Real-time fraud monitoring and risk analytics</p>
-      </div>
-
-      <div className="stats-grid">
-        <StatCard
-          label="Total Transactions"
-          value={stats.totalTransactions.toLocaleString()}
-          icon={icons.total}
-          iconBg="rgba(99, 102, 241, 0.12)"
-          change="+3.2% vs yesterday"
-          changeType="positive"
-        />
-        <StatCard
-          label="Flagged Transactions"
-          value={stats.flaggedTransactions.toLocaleString()}
-          icon={icons.flagged}
-          iconBg="rgba(239, 68, 68, 0.12)"
-          change="+8 flagged since last hour"
-          changeType="negative"
-        />
-        <StatCard
-          label="Reviewed"
-          value={reviewedCount.toLocaleString()}
-          icon={icons.reviewed}
-          iconBg="rgba(168, 85, 247, 0.12)"
-          change="Analyst decisions recorded"
-          changeType="positive"
-        />
-        <StatCard
-          label="Pending Review"
-          value={pendingCount.toLocaleString()}
-          icon={icons.pending}
-          iconBg="rgba(245, 158, 11, 0.12)"
-          change="Awaiting analyst review"
-          changeType="negative"
-        />
-      </div>
-
-      <div className="charts-grid">
-        <FraudTrendChart data={trends} />
-        <RiskDistributionChart stats={stats} />
-      </div>
-
-      <CategoryRiskChart data={categoryRisk} />
-
-      <div className="high-risk-section">
-        <div className="section-title">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
-            <line x1="12" y1="9" x2="12" y2="13" />
-            <line x1="12" y1="17" x2="12.01" y2="17" />
+    <div className="dashboard-page">
+      <div className="dashboard-header">
+        <h1>Dashboard</h1>
+        <button onClick={loadStats} className="refresh-btn">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2">
+            <polyline points="23 4 23 10 17 10" />
+            <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
           </svg>
-          High-Risk Transactions Requiring Attention
+          Refresh
+        </button>
+      </div>
+
+      <div className="dashboard-stats-grid">
+        <div className="dashboard-stat-card">
+          <div className="stat-icon purple">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <line x1="12" y1="1" x2="12" y2="23" />
+              <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
+            </svg>
+          </div>
+          <div className="stat-content">
+            <span className="stat-label">Total Transactions</span>
+            <span className="stat-value">{stats.totalTransactions.toLocaleString()}</span>
+          </div>
         </div>
 
-        <div className="table-container">
-          <table>
+        <div className="dashboard-stat-card">
+          <div className="stat-icon red">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+              <line x1="12" y1="9" x2="12" y2="13" />
+              <line x1="12" y1="17" x2="12.01" y2="17" />
+            </svg>
+          </div>
+          <div className="stat-content">
+            <span className="stat-label">Flagged Transactions</span>
+            <span className="stat-value">{stats.flaggedTransactions.toLocaleString()}</span>
+            <span className="stat-sublabel">{stats.highRiskCount} high risk</span>
+          </div>
+        </div>
+
+        <div className="dashboard-stat-card">
+          <div className="stat-icon green">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+              <polyline points="9 12 11 14 15 10" />
+            </svg>
+          </div>
+          <div className="stat-content">
+            <span className="stat-label">Approved</span>
+            <span className="stat-value">{stats.approvedTransactions.toLocaleString()}</span>
+            <span className="stat-sublabel">Transactions safe</span>
+          </div>
+        </div>
+
+        <div className="dashboard-stat-card">
+          <div className="stat-icon orange">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <circle cx="12" cy="12" r="10" />
+              <path d="M12 16v-4" />
+              <path d="M12 8h.01" />
+            </svg>
+          </div>
+          <div className="stat-content">
+            <span className="stat-label">Avg Risk Score</span>
+            <span className="stat-value">{stats.averageRiskScore} <span className="stat-unit">/100</span></span>
+            <span className="stat-sublabel">{stats.pendingReview} pending review</span>
+          </div>
+        </div>
+      </div>
+
+      <div className="dashboard-charts-row">
+        <div className="chart-card risk-overview">
+          <h3>Risk Trends (Last 7 Days)</h3>
+          <div className="chart-legend">
+            <span className="legend-item">
+              <span className="legend-dot" style={{ background: '#10b981' }} />
+              Approved
+            </span>
+            <span className="legend-item">
+              <span className="legend-dot" style={{ background: '#f59e0b' }} />
+              Flagged
+            </span>
+            <span className="legend-item">
+              <span className="legend-dot" style={{ background: '#ef4444' }} />
+              Declined
+            </span>
+          </div>
+          <ResponsiveContainer width="100%" height={220}>
+            <LineChart data={stats.trends}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+              <XAxis dataKey="date" stroke="#94a3b8" fontSize={11} />
+              <YAxis stroke="#94a3b8" fontSize={11} />
+              <Tooltip
+                contentStyle={{
+                  background: '#fff',
+                  border: '1px solid #e2e8f0',
+                  borderRadius: '8px',
+                  boxShadow: '0 4px 12px rgba(0,0,0,0.1)'
+                }}
+              />
+              <Line type="monotone" dataKey="approved" stroke="#10b981" strokeWidth={2} dot={false} />
+              <Line type="monotone" dataKey="flagged" stroke="#f59e0b" strokeWidth={2} dot={false} />
+              <Line type="monotone" dataKey="declined" stroke="#ef4444" strokeWidth={2} dot={false} />
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+
+        <div className="chart-card risk-distribution">
+          <h3>Risk Distribution</h3>
+          <div className="pie-chart-wrapper">
+            <ResponsiveContainer width={180} height={180}>
+              <PieChart>
+                <Pie
+                  data={distributionData}
+                  cx="50%"
+                  cy="50%"
+                  innerRadius={50}
+                  outerRadius={75}
+                  paddingAngle={3}
+                  dataKey="value"
+                >
+                  {distributionData.map((entry, index) => (
+                    <Cell key={`cell-${index}`} fill={entry.color} />
+                  ))}
+                </Pie>
+              </PieChart>
+            </ResponsiveContainer>
+            <div className="pie-center">
+              <span className="pie-total">{stats.totalTransactions.toLocaleString()}</span>
+              <span className="pie-label">Total</span>
+            </div>
+          </div>
+          <div className="distribution-legend">
+            {distributionData.map((item, i) => (
+              <div key={i} className="legend-row">
+                <span className="legend-dot" style={{ background: item.color }} />
+                <span className="legend-name">{item.name}</span>
+                <span className="legend-value">{item.value.toLocaleString()}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="chart-card category-risk">
+          <h3>Category Risk</h3>
+          <ResponsiveContainer width="100%" height={220}>
+            <BarChart data={categoryData} layout="vertical">
+              <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+              <XAxis type="number" stroke="#94a3b8" fontSize={11} />
+              <YAxis dataKey="name" type="category" stroke="#94a3b8" fontSize={10} width={90} />
+              <Tooltip
+                contentStyle={{
+                  background: '#fff',
+                  border: '1px solid #e2e8f0',
+                  borderRadius: '8px',
+                }}
+              />
+              <Bar dataKey="count" fill="#6366f1" radius={[0, 4, 4, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+      </div>
+
+      {stats.recentTransactions && stats.recentTransactions.length > 0 && (
+        <div className="dashboard-table-card">
+          <h3>Recent High-Risk Transactions</h3>
+          <table className="dashboard-table">
             <thead>
               <tr>
                 <th>Transaction ID</th>
-                <th>Time</th>
-                <th>Cardholder</th>
                 <th>Amount</th>
-                <th>Merchant</th>
+                <th>Category</th>
                 <th>Risk Score</th>
                 <th>Risk Level</th>
-                <th>Status</th>
+                <th>Decision</th>
               </tr>
             </thead>
             <tbody>
-              {flagged.map((txn) => (
-                <tr
-                  key={txn.id}
-                  className="table-row-link"
-                  onClick={() => navigate(`/transactions/${txn.id}`)}
-                >
-                  <td style={{ fontWeight: 500 }}>{txn.id}</td>
-                  <td>{format(new Date(txn.timestamp), 'HH:mm:ss')}</td>
-                  <td>{txn.cardholderName}</td>
-                  <td>{formatCurrency(txn.amount)}</td>
-                  <td>{txn.merchant}</td>
-                  <td><RiskScoreBar score={txn.riskScore} /></td>
-                  <td><RiskBadge level={txn.riskLevel} /></td>
-                  <td><StatusBadge status={txn.status} analystDecision={txn.analystDecision} /></td>
+              {stats.recentTransactions.map((txn, i) => (
+                <tr key={i}>
+                  <td className="txn-id">{txn.transaction_id || 'N/A'}</td>
+                  <td className="txn-amount">${(txn.amount || 0).toLocaleString()}</td>
+                  <td>{txn.merchant_category || 'N/A'}</td>
+                  <td>
+                    <span className={`risk-score ${(txn.risk_level || '').toLowerCase()}`}>
+                      {txn.risk_score ?? 'N/A'}
+                    </span>
+                  </td>
+                  <td>
+                    <span className={`risk-level-badge ${(txn.risk_level || '').toLowerCase()}`}>
+                      {txn.risk_level || 'N/A'}
+                    </span>
+                  </td>
+                  <td>
+                    <span className={`status-badge-light ${(txn.prediction || '').toLowerCase()}`}>
+                      {txn.prediction || 'N/A'}
+                    </span>
+                  </td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
-      </div>
+      )}
     </div>
   )
 }

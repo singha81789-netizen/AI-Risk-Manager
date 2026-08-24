@@ -11,6 +11,7 @@ python-dotenv
 joblib
 sqlalchemy
 psycopg2-binary
+python-multipart
 
 # RAG / Embeddings
 sentence-transformers

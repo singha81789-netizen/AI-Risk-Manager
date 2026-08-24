@@ -150,3 +150,29 @@ class AuditLog(Base):
             f"<AuditLog(id={self.id}, event_type={self.event_type}, "
             f"transaction_id={self.transaction_id}, actor={self.actor})>"
         )
+
+
+class Alert(Base):
+    """Auto-generated alert when a transaction crosses the high-risk threshold."""
+
+    __tablename__ = "alerts"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    transaction_id = Column(String(128), nullable=False, index=True)
+    risk_score = Column(Integer, nullable=False)
+    risk_level = Column(String(16), nullable=False)
+    reason = Column(Text, nullable=True)
+    status = Column(String(32), nullable=False, default="OPEN")  # OPEN / REVIEWED / CONFIRMED_FRAUD / FALSE_POSITIVE
+    reviewed_by = Column(String(128), nullable=True)
+    reviewed_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        nullable=False,
+    )
+
+    def __repr__(self) -> str:
+        return (
+            f"<Alert(id={self.id}, transaction_id={self.transaction_id}, "
+            f"risk_level={self.risk_level}, status={self.status})>"
+        )

@@ -1,25 +1,47 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { getTransactionById, getReviewsByTransactionId } from '../services/mockData'
-import { getAnalystReviews, getModelExplanation } from '../services/api'
+import { getTransactionById, getAnalystReviews, getModelExplanation } from '../services/api'
 import RiskBadge from '../components/common/RiskBadge'
-import StatusBadge from '../components/common/StatusBadge'
 import AnalystReviewForm from '../components/common/AnalystReviewForm'
 import { format } from 'date-fns'
-import type { AnalystDecision, ApiAnalystReview, ModelExplanation } from '../types'
+import type { ApiTransaction, ApiAnalystReview, ModelExplanation, AnalystDecision } from '../types'
 
 export default function TransactionDetail() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
 
-  const txn = id ? getTransactionById(id) : undefined
-  const mockReviews = id ? getReviewsByTransactionId(id) : []
+  const [txn, setTxn] = useState<ApiTransaction | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
   const [apiReviews, setApiReviews] = useState<ApiAnalystReview[]>([])
   const [localDecision, setLocalDecision] = useState<AnalystDecision | null>(null)
   const [explanation, setExplanation] = useState<ModelExplanation | null>(null)
   const [explanationError, setExplanationError] = useState<string | null>(null)
 
+  // Load transaction
+  useEffect(() => {
+    if (!id) return
+    let cancelled = false
+    async function load() {
+      try {
+        const data = await getTransactionById(id!)
+        if (!cancelled) {
+          setTxn(data)
+          setLoading(false)
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : 'Transaction not found')
+          setLoading(false)
+        }
+      }
+    }
+    load()
+    return () => { cancelled = true }
+  }, [id])
+
+  // Load reviews
   const loadReviews = useCallback(async () => {
     if (!id) return
     try {
@@ -29,27 +51,33 @@ export default function TransactionDetail() {
         setLocalDecision(reviews[0].decision)
       }
     } catch {
-      // API may be unavailable -- fall back to mock data silently
+      // API may be unavailable
     }
   }, [id])
 
+  useEffect(() => {
+    loadReviews()
+  }, [loadReviews])
+
+  // Load explanation when transaction data is available
   const loadExplanation = useCallback(async () => {
-    if (!txn) return
+    if (!txn || !txn.transaction_id) return
     try {
       const result = await getModelExplanation({
-        transaction_id: txn.id,
-        age: txn.riskScore, // mock data doesn't store raw fields, so we use what's available
-        gender: 'M',
-        merchant_category: txn.merchantCategory,
-        amount: txn.amount,
-        transaction_type: 'Online',
-        card_type: 'Credit',
-        card_present: 0,
-        device_type: 'Web_Browser',
-        distance_from_home: 50,
-        distance_from_last_transaction: 30,
-        high_risk_country: 0,
-        velocity_last_24h: 3,
+        transaction_id: txn.transaction_id,
+        age: txn.age ?? 30,
+        gender: txn.gender ?? 'M',
+        merchant_category: txn.merchant_category ?? 'unknown',
+        amount: txn.amount ?? 0,
+        transaction_type: txn.transaction_type ?? 'Online',
+        card_type: txn.card_type ?? 'Credit',
+        card_present: txn.card_present ?? 0,
+        device_type: txn.device_type ?? 'Web_Browser',
+        distance_from_home: txn.distance_from_home ?? 0,
+        distance_from_last_transaction: txn.distance_from_last_transaction ?? 0,
+        high_risk_country: txn.high_risk_country ?? 0,
+        velocity_last_24h: txn.velocity_last_24h ?? 1,
+        timestamp: txn.timestamp ?? undefined,
       })
       setExplanation(result)
     } catch {
@@ -58,16 +86,30 @@ export default function TransactionDetail() {
   }, [txn])
 
   useEffect(() => {
-    loadReviews()
-  }, [loadReviews])
-
-  useEffect(() => {
     loadExplanation()
   }, [loadExplanation])
 
-  const effectiveDecision = localDecision || txn?.analystDecision || null
+  const effectiveDecision = localDecision || (txn?.analyst_decision as AnalystDecision) || null
 
-  if (!txn) {
+  if (loading) {
+    return (
+      <div>
+        <button className="back-button" onClick={() => navigate('/transactions')}>
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2">
+            <line x1="19" y1="12" x2="5" y2="12" />
+            <polyline points="12 19 5 12 12 5" />
+          </svg>
+          Back to Transactions
+        </button>
+        <div className="loading-state">
+          <div className="spinner" />
+          <p>Loading transaction...</p>
+        </div>
+      </div>
+    )
+  }
+
+  if (error || !txn) {
     return (
       <div>
         <button className="back-button" onClick={() => navigate('/transactions')}>
@@ -78,18 +120,20 @@ export default function TransactionDetail() {
           Back to Transactions
         </button>
         <div className="empty-state">
-          <p>Transaction not found.</p>
+          <p>{error || 'Transaction not found.'}</p>
         </div>
       </div>
     )
   }
 
   const formatCurrency = (n: number) =>
-    new Intl.NumberFormat('en-US', { style: 'currency', currency: txn.currency }).format(n)
+    new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(n)
 
   function handleReviewSubmitted(decision: AnalystDecision, _notes: string) {
     setLocalDecision(decision)
   }
+
+  const riskFactors = txn.triggered_risk_factors || []
 
   return (
     <div>
@@ -102,8 +146,10 @@ export default function TransactionDetail() {
       </button>
 
       <div className="page-header">
-        <h2>Transaction Detail</h2>
-        <p>{txn.id}</p>
+        <div className="page-header-text">
+          <h2>Transaction Detail</h2>
+          <p>{txn.transaction_id}</p>
+        </div>
       </div>
 
       <div className="detail-grid">
@@ -116,28 +162,34 @@ export default function TransactionDetail() {
               <div className="detail-field">
                 <label>Amount</label>
                 <span className="value" style={{ fontSize: '1.25rem', fontWeight: 700 }}>
-                  {formatCurrency(txn.amount)}
+                  {txn.amount != null ? formatCurrency(txn.amount) : '—'}
                 </span>
               </div>
               <div className="detail-field">
                 <label>Timestamp</label>
-                <span className="value">{format(new Date(txn.timestamp), 'MMM d, yyyy HH:mm:ss')}</span>
-              </div>
-              <div className="detail-field">
-                <label>Merchant</label>
-                <span className="value">{txn.merchant}</span>
+                <span className="value">
+                  {txn.timestamp
+                    ? format(new Date(txn.timestamp), 'MMM d, yyyy HH:mm:ss')
+                    : txn.created_at
+                      ? format(new Date(txn.created_at), 'MMM d, yyyy HH:mm:ss')
+                      : '—'}
+                </span>
               </div>
               <div className="detail-field">
                 <label>Category</label>
-                <span className="value">{txn.merchantCategory}</span>
+                <span className="value">{txn.merchant_category || '—'}</span>
               </div>
               <div className="detail-field">
-                <label>Location</label>
-                <span className="value">{txn.city}, {txn.country}</span>
+                <label>Transaction Type</label>
+                <span className="value">{txn.transaction_type || '—'}</span>
               </div>
               <div className="detail-field">
-                <label>IP Address</label>
-                <span className="value" style={{ fontFamily: 'monospace' }}>{txn.ipAddress}</span>
+                <label>Card Type</label>
+                <span className="value">{txn.card_type || '—'}</span>
+              </div>
+              <div className="detail-field">
+                <label>Device</label>
+                <span className="value">{txn.device_type || '—'}</span>
               </div>
             </div>
           </div>
@@ -146,25 +198,46 @@ export default function TransactionDetail() {
         <div className="card">
           <div className="card-header">
             <h3>Risk Assessment</h3>
+            {txn.model_version && (
+              <span style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', marginLeft: 8 }}>
+                model v{txn.model_version}
+              </span>
+            )}
           </div>
           <div className="card-body">
             <div className="detail-grid">
               <div className="detail-field">
+                <label>Fraud Probability</label>
+                <span className="value" style={{ fontSize: '1.5rem', fontWeight: 700 }}>
+                  {txn.fraud_probability != null
+                    ? `${(txn.fraud_probability * 100).toFixed(1)}%`
+                    : '—'}
+                </span>
+              </div>
+              <div className="detail-field">
                 <label>Risk Score</label>
                 <span className="value" style={{ fontSize: '2rem', fontWeight: 700 }}>
-                  {txn.riskScore}
-                  <span style={{ fontSize: '0.85rem', color: 'var(--color-text-muted)', fontWeight: 400 }}>
-                    {' '}/ 100
-                  </span>
+                  {txn.risk_score ?? '—'}
+                  {txn.risk_score != null && (
+                    <span style={{ fontSize: '0.85rem', color: 'var(--color-text-muted)', fontWeight: 400 }}>
+                      {' '}/ 100
+                    </span>
+                  )}
                 </span>
               </div>
               <div className="detail-field">
                 <label>Risk Level</label>
-                <RiskBadge level={txn.riskLevel} />
+                {txn.risk_level ? (
+                  <RiskBadge level={txn.risk_level} />
+                ) : (
+                  <span className="value">—</span>
+                )}
               </div>
               <div className="detail-field">
-                <label>Status</label>
-                <StatusBadge status={txn.status} analystDecision={effectiveDecision} />
+                <label>Decision</label>
+                <span className="value" style={{ fontWeight: 600 }}>
+                  {txn.prediction || '—'}
+                </span>
               </div>
             </div>
           </div>
@@ -173,38 +246,50 @@ export default function TransactionDetail() {
 
       <div className="card" style={{ marginBottom: 16 }}>
         <div className="card-header">
-          <h3>Cardholder Information</h3>
+          <h3>Transaction Details</h3>
         </div>
         <div className="card-body">
           <div className="detail-grid">
             <div className="detail-field">
-              <label>Name</label>
-              <span className="value">{txn.cardholderName}</span>
+              <label>Age</label>
+              <span className="value">{txn.age ?? '—'}</span>
             </div>
             <div className="detail-field">
-              <label>Email</label>
-              <span className="value">{txn.cardholderEmail}</span>
+              <label>Gender</label>
+              <span className="value">{txn.gender || '—'}</span>
             </div>
             <div className="detail-field">
-              <label>Card (Last 4)</label>
-              <span className="value" style={{ fontFamily: 'monospace' }}>**** {txn.cardLast4}</span>
+              <label>Card Present</label>
+              <span className="value">{txn.card_present === 1 ? 'Yes' : txn.card_present === 0 ? 'No' : '—'}</span>
             </div>
             <div className="detail-field">
-              <label>Device Fingerprint</label>
-              <span className="value" style={{ fontFamily: 'monospace' }}>{txn.deviceFingerprint}</span>
+              <label>Distance from Home</label>
+              <span className="value">{txn.distance_from_home != null ? `${txn.distance_from_home} km` : '—'}</span>
+            </div>
+            <div className="detail-field">
+              <label>Distance from Last Txn</label>
+              <span className="value">{txn.distance_from_last_transaction != null ? `${txn.distance_from_last_transaction} km` : '—'}</span>
+            </div>
+            <div className="detail-field">
+              <label>High Risk Country</label>
+              <span className="value">{txn.high_risk_country === 1 ? 'Yes' : txn.high_risk_country === 0 ? 'No' : '—'}</span>
+            </div>
+            <div className="detail-field">
+              <label>Velocity (24h)</label>
+              <span className="value">{txn.velocity_last_24h ?? '—'}</span>
             </div>
           </div>
         </div>
       </div>
 
-      {txn.riskFactors.length > 0 && (
+      {riskFactors.length > 0 && (
         <div className="card" style={{ marginBottom: 16 }}>
           <div className="card-header">
-            <h3>Risk Factors</h3>
+            <h3>Triggered Risk Factors</h3>
           </div>
           <div className="card-body">
             <ul className="risk-factors-list">
-              {txn.riskFactors.map((factor, i) => (
+              {riskFactors.map((factor, i) => (
                 <li key={i}>{factor}</li>
               ))}
             </ul>
@@ -212,18 +297,13 @@ export default function TransactionDetail() {
         </div>
       )}
 
-      <div className="ai-analysis-box">
-        <div className="label">AI Analysis</div>
-        <p>{txn.aiAnalysis}</p>
-      </div>
-
       {/* Model Explanation — SHAP-based feature contributions */}
       {explanation && explanation.factors.length > 0 && (
         <div className="card" style={{ marginBottom: 16 }}>
           <div className="card-header">
             <h3>Model Explanation</h3>
             <span style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', marginLeft: 8 }}>
-              source: model ({explanation.source})
+              source: {explanation.source}
             </span>
           </div>
           <div className="card-body">
@@ -299,41 +379,18 @@ export default function TransactionDetail() {
 
       <div className="card" style={{ marginBottom: 16 }}>
         <div className="card-header">
-          <h3>Velocity Checks</h3>
-        </div>
-        <div className="card-body">
-          <div className="velocity-checks">
-            {txn.velocityChecks.map((check, i) => (
-              <div
-                key={i}
-                className={`velocity-check ${check.passed ? 'passed' : 'failed'}`}
-              >
-                <span className="check-label">{check.label}</span>
-                <span className="check-detail">
-                  {check.label.includes('Amount')
-                    ? `$${check.count.toLocaleString()} / $${check.threshold.toLocaleString()}`
-                    : `${check.count} / ${check.threshold}`}
-                </span>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      <div className="card" style={{ marginBottom: 16 }}>
-        <div className="card-header">
           <h3>Analyst Review</h3>
         </div>
         <div className="card-body">
           <AnalystReviewForm
-            transactionId={txn.id}
+            transactionId={txn.transaction_id || ''}
             existingDecision={effectiveDecision}
             onReviewSubmitted={handleReviewSubmitted}
           />
         </div>
       </div>
 
-      {(apiReviews.length > 0 || mockReviews.length > 0) && (
+      {apiReviews.length > 0 && (
         <div className="card">
           <div className="card-header">
             <h3>Review History</h3>
@@ -359,28 +416,6 @@ export default function TransactionDetail() {
                 )}
               </div>
             ))}
-            {apiReviews.length === 0 && mockReviews.map((review) => (
-              <div key={review.id} className="review-card">
-                <div className="review-header">
-                  <span className="analyst">{review.analystName}</span>
-                  <span className="time">
-                    {format(new Date(review.timestamp), 'MMM d, HH:mm')}
-                  </span>
-                </div>
-                <span className={`review-decision ${review.decision}`}>
-                  {review.decision}
-                </span>
-                <p className="review-notes">{review.notes}</p>
-                <div className="review-confidence">
-                  Confidence: {Math.round(review.confidence * 100)}%
-                </div>
-              </div>
-            ))}
-            {apiReviews.length === 0 && mockReviews.length === 0 && (
-              <div className="empty-state">
-                <p>No analyst reviews yet.</p>
-              </div>
-            )}
           </div>
         </div>
       )}

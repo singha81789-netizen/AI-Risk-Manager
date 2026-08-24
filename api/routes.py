@@ -3,10 +3,12 @@ Pydantic schemas, prediction endpoint, and analyst workflow for the AI Risk Mana
 """
 
 import json
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
+from sqlalchemy import func
 
 from src.anomaly_detection import AnomalyDetector
 from src.audit import (
@@ -616,3 +618,428 @@ def get_analyst_reviews(
     except Exception as exc:
         logger.error(f"Failed to fetch analyst reviews: {exc}")
         raise HTTPException(status_code=500, detail="Failed to retrieve analyst reviews")
+
+
+# ---------------------------------------------------------------------------
+# Transaction listing and detail endpoints
+# ---------------------------------------------------------------------------
+
+class TransactionOut(BaseModel):
+    """Transaction record returned by GET /transactions."""
+    id: int
+    transaction_id: Optional[str]
+    timestamp: Optional[str]
+    amount: Optional[float]
+    merchant_category: Optional[str]
+    transaction_type: Optional[str]
+    card_type: Optional[str]
+    card_present: Optional[int]
+    device_type: Optional[str]
+    age: Optional[int]
+    gender: Optional[str]
+    distance_from_home: Optional[float]
+    distance_from_last_transaction: Optional[float]
+    high_risk_country: Optional[int]
+    velocity_last_24h: Optional[int]
+    created_at: Optional[str]
+    # Risk prediction fields (joined)
+    fraud_probability: Optional[float] = None
+    risk_score: Optional[int] = None
+    risk_level: Optional[str] = None
+    prediction: Optional[str] = None
+    triggered_risk_factors: Optional[List[str]] = None
+    model_version: Optional[str] = None
+    # Analyst review fields (joined)
+    analyst_decision: Optional[str] = None
+    analyst_notes: Optional[str] = None
+    analyst_id: Optional[str] = None
+    reviewed_at: Optional[str] = None
+
+
+@router.get(
+    "/transactions",
+    summary="List transactions with risk predictions",
+    tags=["Transactions"],
+)
+def get_transactions(
+    risk_level: Optional[str] = None,
+    limit: int = 100,
+    offset: int = 0,
+) -> Dict[str, Any]:
+    """Return transactions joined with their latest risk prediction and analyst review.
+
+    Supports filtering by ``risk_level`` (HIGH, MEDIUM, LOW).
+    """
+    limit = min(limit, 500)
+    try:
+        with get_db_session() as session:
+            # Subquery: get the latest prediction ID per transaction
+            latest_pred_subq = (
+                session.query(
+                    RiskPrediction.transaction_id,
+                    func.max(RiskPrediction.id).label("max_id"),
+                )
+                .group_by(RiskPrediction.transaction_id)
+                .subquery()
+            )
+
+            # Join transactions with their latest prediction
+            query = (
+                session.query(Transaction, RiskPrediction)
+                .join(
+                    latest_pred_subq,
+                    and_(
+                        Transaction.transaction_id == latest_pred_subq.c.transaction_id,
+                        RiskPrediction.id == latest_pred_subq.c.max_id,
+                    ),
+                )
+            )
+
+            if risk_level:
+                query = query.filter(RiskPrediction.risk_level == risk_level)
+
+            query = query.order_by(Transaction.created_at.desc()).offset(offset).limit(limit)
+
+            results = []
+            for txn, pred in query.all():
+                # Get latest analyst review for this transaction
+                review = (
+                    session.query(AnalystReview)
+                    .filter(AnalystReview.transaction_id == txn.transaction_id)
+                    .order_by(AnalystReview.created_at.desc())
+                    .first()
+                )
+
+                factors = None
+                if pred and pred.triggered_risk_factors:
+                    try:
+                        factors = json.loads(pred.triggered_risk_factors)
+                    except (json.JSONDecodeError, TypeError):
+                        factors = []
+
+                results.append(
+                    TransactionOut(
+                        id=txn.id,
+                        transaction_id=txn.transaction_id,
+                        timestamp=txn.timestamp,
+                        amount=txn.amount,
+                        merchant_category=txn.merchant_category,
+                        transaction_type=txn.transaction_type,
+                        card_type=txn.card_type,
+                        card_present=txn.card_present,
+                        device_type=txn.device_type,
+                        age=txn.age,
+                        gender=txn.gender,
+                        distance_from_home=txn.distance_from_home,
+                        distance_from_last_transaction=txn.distance_from_last_transaction,
+                        high_risk_country=txn.high_risk_country,
+                        velocity_last_24h=txn.velocity_last_24h,
+                        created_at=txn.created_at.isoformat() if txn.created_at else None,
+                        fraud_probability=pred.fraud_probability if pred else None,
+                        risk_score=pred.risk_score if pred else None,
+                        risk_level=pred.risk_level if pred else None,
+                        prediction=pred.prediction if pred else None,
+                        triggered_risk_factors=factors,
+                        model_version=pred.model_version if pred else None,
+                        analyst_decision=review.decision if review else None,
+                        analyst_notes=review.notes if review else None,
+                        analyst_id=review.analyst_id if review else None,
+                        reviewed_at=review.created_at.isoformat() if review and review.created_at else None,
+                    ).model_dump()
+                )
+
+            # Get total count
+            total = session.query(func.count(Transaction.id)).scalar() or 0
+
+            return {"transactions": results, "total": total, "limit": limit, "offset": offset}
+
+    except Exception as exc:
+        logger.error(f"Failed to fetch transactions: {exc}")
+        raise HTTPException(status_code=500, detail="Failed to retrieve transactions")
+
+
+@router.get(
+    "/transactions/{transaction_id}",
+    summary="Get a single transaction with risk prediction",
+    tags=["Transactions"],
+)
+def get_transaction(transaction_id: str) -> Dict[str, Any]:
+    """Return a single transaction with its latest prediction and review."""
+    try:
+        with get_db_session() as session:
+            txn = (
+                session.query(Transaction)
+                .filter(Transaction.transaction_id == transaction_id)
+                .first()
+            )
+            if not txn:
+                raise HTTPException(status_code=404, detail=f"Transaction {transaction_id} not found")
+
+            pred = (
+                session.query(RiskPrediction)
+                .filter(RiskPrediction.transaction_id == transaction_id)
+                .order_by(RiskPrediction.created_at.desc())
+                .first()
+            )
+
+            review = (
+                session.query(AnalystReview)
+                .filter(AnalystReview.transaction_id == transaction_id)
+                .order_by(AnalystReview.created_at.desc())
+                .first()
+            )
+
+            factors = None
+            if pred and pred.triggered_risk_factors:
+                try:
+                    factors = json.loads(pred.triggered_risk_factors)
+                except (json.JSONDecodeError, TypeError):
+                    factors = []
+
+            return TransactionOut(
+                id=txn.id,
+                transaction_id=txn.transaction_id,
+                timestamp=txn.timestamp,
+                amount=txn.amount,
+                merchant_category=txn.merchant_category,
+                transaction_type=txn.transaction_type,
+                card_type=txn.card_type,
+                card_present=txn.card_present,
+                device_type=txn.device_type,
+                age=txn.age,
+                gender=txn.gender,
+                distance_from_home=txn.distance_from_home,
+                distance_from_last_transaction=txn.distance_from_last_transaction,
+                high_risk_country=txn.high_risk_country,
+                velocity_last_24h=txn.velocity_last_24h,
+                created_at=txn.created_at.isoformat() if txn.created_at else None,
+                fraud_probability=pred.fraud_probability if pred else None,
+                risk_score=pred.risk_score if pred else None,
+                risk_level=pred.risk_level if pred else None,
+                prediction=pred.prediction if pred else None,
+                triggered_risk_factors=factors,
+                model_version=pred.model_version if pred else None,
+                analyst_decision=review.decision if review else None,
+                analyst_notes=review.notes if review else None,
+                analyst_id=review.analyst_id if review else None,
+                reviewed_at=review.created_at.isoformat() if review and review.created_at else None,
+            ).model_dump()
+
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error(f"Failed to fetch transaction {transaction_id}: {exc}")
+        raise HTTPException(status_code=500, detail="Failed to retrieve transaction")
+
+
+# ---------------------------------------------------------------------------
+# Dashboard statistics endpoint
+# ---------------------------------------------------------------------------
+
+class DashboardStats(BaseModel):
+    """Aggregated dashboard statistics computed from the database."""
+    totalTransactions: int
+    flaggedTransactions: int
+    approvedTransactions: int
+    declinedTransactions: int
+    averageRiskScore: float
+    highRiskCount: int
+    mediumRiskCount: int
+    lowRiskCount: int
+    reviewedTransactions: int
+    pendingReview: int
+    recentTransactions: List[Dict[str, Any]]
+    categoryRisk: List[Dict[str, Any]]
+    trends: List[Dict[str, Any]]
+
+
+@router.get(
+    "/dashboard/stats",
+    response_model=DashboardStats,
+    summary="Get aggregated dashboard statistics",
+    tags=["Dashboard"],
+)
+def get_dashboard_stats() -> DashboardStats:
+    """Compute real-time dashboard statistics from the database.
+
+    Returns transaction counts, risk level distribution, category risk data,
+    recent transactions for the high-risk table, and daily trend data.
+    """
+    try:
+        with get_db_session() as session:
+            total = session.query(func.count(Transaction.id)).scalar() or 0
+
+            # Count predictions by risk level
+            high_count = session.query(func.count(RiskPrediction.id)).filter(
+                RiskPrediction.risk_level == "HIGH"
+            ).scalar() or 0
+
+            medium_count = session.query(func.count(RiskPrediction.id)).filter(
+                RiskPrediction.risk_level == "MEDIUM"
+            ).scalar() or 0
+
+            low_count = session.query(func.count(RiskPrediction.id)).filter(
+                RiskPrediction.risk_level == "LOW"
+            ).scalar() or 0
+
+            flagged = high_count + medium_count
+
+            approved = session.query(func.count(RiskPrediction.id)).filter(
+                RiskPrediction.prediction == "APPROVE"
+            ).scalar() or 0
+
+            declined = session.query(func.count(RiskPrediction.id)).filter(
+                RiskPrediction.prediction == "DECLINE"
+            ).scalar() or 0
+
+            avg_score_result = session.query(func.avg(RiskPrediction.risk_score)).scalar()
+            avg_score = round(float(avg_score_result), 1) if avg_score_result else 0.0
+
+            # Analyst reviews
+            reviewed = session.query(func.count(AnalystReview.id)).scalar() or 0
+
+            # Pending = predictions that are HIGH or MEDIUM but have no analyst review
+            high_medium_txns = (
+                session.query(RiskPrediction.transaction_id)
+                .filter(RiskPrediction.risk_level.in_(["HIGH", "MEDIUM"]))
+                .subquery()
+            )
+            reviewed_txns = (
+                session.query(AnalystReview.transaction_id)
+                .distinct()
+                .subquery()
+            )
+            pending = (
+                session.query(func.count())
+                .select_from(high_medium_txns)
+                .outerjoin(reviewed_txns, high_medium_txns.c.transaction_id == reviewed_txns.c.transaction_id)
+                .filter(reviewed_txns.c.transaction_id.is_(None))
+                .scalar() or 0
+            )
+
+            # Recent high-risk transactions for the table
+            recent_high = (
+                session.query(Transaction, RiskPrediction)
+                .outerjoin(
+                    RiskPrediction,
+                    Transaction.transaction_id == RiskPrediction.transaction_id,
+                )
+                .filter(RiskPrediction.risk_level.in_(["HIGH", "MEDIUM"]))
+                .order_by(Transaction.created_at.desc())
+                .limit(10)
+                .all()
+            )
+
+            recent_list = []
+            for txn, pred in recent_high:
+                recent_list.append({
+                    "transaction_id": txn.transaction_id,
+                    "timestamp": txn.created_at.isoformat() if txn.created_at else None,
+                    "amount": txn.amount,
+                    "merchant_category": txn.merchant_category,
+                    "risk_score": pred.risk_score if pred else None,
+                    "risk_level": pred.risk_level if pred else None,
+                    "prediction": pred.prediction if pred else None,
+                })
+
+            # Category risk aggregation
+            cat_results = (
+                session.query(
+                    Transaction.merchant_category,
+                    func.avg(RiskPrediction.risk_score).label("avg_score"),
+                    func.count(RiskPrediction.id).label("count"),
+                )
+                .join(RiskPrediction, Transaction.transaction_id == RiskPrediction.transaction_id)
+                .filter(Transaction.merchant_category.isnot(None))
+                .group_by(Transaction.merchant_category)
+                .order_by(func.avg(RiskPrediction.risk_score).desc())
+                .all()
+            )
+
+            category_risk = [
+                {
+                    "category": cat,
+                    "riskScore": round(float(score), 1) if score else 0,
+                    "transactionCount": count,
+                }
+                for cat, score, count in cat_results
+            ]
+
+            # Daily trend data (last 7 days)
+            now = datetime.now(timezone.utc)
+            trends = []
+            for i in range(6, -1, -1):
+                day = now - timedelta(days=i)
+                day_start = day.replace(hour=0, minute=0, second=0, microsecond=0)
+                day_end = day_start + timedelta(days=1)
+
+                day_flagged = (
+                    session.query(func.count(RiskPrediction.id))
+                    .join(Transaction, Transaction.transaction_id == RiskPrediction.transaction_id)
+                    .filter(
+                        Transaction.created_at >= day_start,
+                        Transaction.created_at < day_end,
+                        RiskPrediction.risk_level.in_(["HIGH", "MEDIUM"]),
+                    )
+                    .scalar() or 0
+                )
+
+                day_approved = (
+                    session.query(func.count(RiskPrediction.id))
+                    .join(Transaction, Transaction.transaction_id == RiskPrediction.transaction_id)
+                    .filter(
+                        Transaction.created_at >= day_start,
+                        Transaction.created_at < day_end,
+                        RiskPrediction.prediction == "APPROVE",
+                    )
+                    .scalar() or 0
+                )
+
+                day_declined = (
+                    session.query(func.count(RiskPrediction.id))
+                    .join(Transaction, Transaction.transaction_id == RiskPrediction.transaction_id)
+                    .filter(
+                        Transaction.created_at >= day_start,
+                        Transaction.created_at < day_end,
+                        RiskPrediction.prediction == "DECLINE",
+                    )
+                    .scalar() or 0
+                )
+
+                day_avg = (
+                    session.query(func.avg(RiskPrediction.risk_score))
+                    .join(Transaction, Transaction.transaction_id == RiskPrediction.transaction_id)
+                    .filter(
+                        Transaction.created_at >= day_start,
+                        Transaction.created_at < day_end,
+                    )
+                    .scalar()
+                )
+
+                trends.append({
+                    "date": day_start.strftime("%b %d"),
+                    "flagged": day_flagged,
+                    "approved": day_approved,
+                    "declined": day_declined,
+                    "avgRiskScore": round(float(day_avg), 1) if day_avg else 0,
+                })
+
+            return DashboardStats(
+                totalTransactions=total,
+                flaggedTransactions=flagged,
+                approvedTransactions=approved,
+                declinedTransactions=declined,
+                averageRiskScore=avg_score,
+                highRiskCount=high_count,
+                mediumRiskCount=medium_count,
+                lowRiskCount=low_count,
+                reviewedTransactions=reviewed,
+                pendingReview=pending,
+                recentTransactions=recent_list,
+                categoryRisk=category_risk,
+                trends=trends,
+            )
+
+    except Exception as exc:
+        logger.error(f"Failed to compute dashboard stats: {exc}")
+        raise HTTPException(status_code=500, detail="Failed to compute dashboard statistics")

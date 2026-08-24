@@ -4,46 +4,38 @@ export type TransactionStatus = 'pending' | 'approved' | 'declined' | 'under_rev
 
 export type AnalystDecision = 'CONFIRM_FRAUD' | 'FALSE_POSITIVE' | 'ESCALATE';
 
-export interface Transaction {
-  id: string;
-  timestamp: string;
-  amount: number;
-  currency: string;
-  merchant: string;
-  merchantCategory: string;
-  cardLast4: string;
-  cardholderName: string;
-  cardholderEmail: string;
-  ipAddress: string;
-  deviceFingerprint: string;
-  country: string;
-  city: string;
-  riskScore: number;
-  riskLevel: RiskLevel;
-  riskFactors: string[];
-  status: TransactionStatus;
-  aiAnalysis: string;
-  velocityChecks: VelocityCheck[];
-  analystDecision?: AnalystDecision | null;
-  analystNotes?: string;
-  analystId?: string;
-  reviewedAt?: string;
+// --- Backend API types (match backend Pydantic schemas) ---
+
+export interface ApiTransaction {
+  id: number;
+  transaction_id: string | null;
+  timestamp: string | null;
+  amount: number | null;
+  merchant_category: string | null;
+  transaction_type: string | null;
+  card_type: string | null;
+  card_present: number | null;
+  device_type: string | null;
+  age: number | null;
+  gender: string | null;
+  distance_from_home: number | null;
+  distance_from_last_transaction: number | null;
+  high_risk_country: number | null;
+  velocity_last_24h: number | null;
+  created_at: string | null;
+  fraud_probability: number | null;
+  risk_score: number | null;
+  risk_level: RiskLevel | null;
+  prediction: string | null;
+  triggered_risk_factors: string[] | null;
+  model_version: string | null;
+  analyst_decision: string | null;
+  analyst_notes: string | null;
+  analyst_id: string | null;
+  reviewed_at: string | null;
 }
 
-export interface VelocityCheck {
-  label: string;
-  count: number;
-  threshold: number;
-  passed: boolean;
-}
-
-export interface RiskScoreBreakdown {
-  factor: string;
-  score: number;
-  weight: number;
-}
-
-export interface FraudStats {
+export interface ApiDashboardStats {
   totalTransactions: number;
   flaggedTransactions: number;
   approvedTransactions: number;
@@ -52,23 +44,14 @@ export interface FraudStats {
   highRiskCount: number;
   mediumRiskCount: number;
   lowRiskCount: number;
-  totalFraudLoss: number;
-  preventedLoss: number;
-  reviewedTransactions?: number;
-  pendingReview?: number;
+  reviewedTransactions: number;
+  pendingReview: number;
+  recentTransactions: ApiTransaction[];
+  categoryRisk: ApiCategoryRisk[];
+  trends: ApiFraudTrend[];
 }
 
-export interface AnalystReview {
-  id: string;
-  transactionId: string;
-  analystName: string;
-  timestamp: string;
-  decision: 'approve' | 'decline' | 'escalate' | 'hold';
-  notes: string;
-  confidence: number;
-}
-
-export interface FraudTrend {
+export interface ApiFraudTrend {
   date: string;
   flagged: number;
   approved: number;
@@ -76,13 +59,26 @@ export interface FraudTrend {
   avgRiskScore: number;
 }
 
-export interface CategoryRisk {
+export interface ApiCategoryRisk {
   category: string;
   riskScore: number;
   transactionCount: number;
 }
 
-// --- API types (match backend Pydantic schemas) ---
+export interface ApiPredictionResponse {
+  transaction_id: string | null;
+  fraud_probability: number;
+  risk_score: number;
+  risk_level: RiskLevel;
+  decision: string;
+  is_fraud_predicted: boolean;
+  triggered_risk_factors: string[];
+  anomaly: {
+    is_anomaly: boolean;
+    anomaly_score: number;
+    anomaly_label: string;
+  } | null;
+}
 
 export interface ApiAnalystReview {
   id: number;
@@ -140,4 +136,81 @@ export interface ModelExplanation {
   base_value: number;
   model_version: string;
   source: 'model';
+}
+
+// --- Upload / Batch types ---
+
+export interface BatchResult {
+  transaction_id: string | null;
+  amount: number | null;
+  merchant_category: string | null;
+  fraud_probability: number;
+  risk_score: number;
+  risk_level: RiskLevel;
+  decision: string;
+  triggered_risk_factors: string[];
+  is_anomaly: boolean;
+  anomaly_score: number;
+}
+
+export interface BatchUploadResponse {
+  filename: string;
+  total_rows: number;
+  processed_rows: number;
+  errors: string[];
+  high_risk_count: number;
+  medium_risk_count: number;
+  low_risk_count: number;
+  alerts_created: number;
+  results: BatchResult[];
+}
+
+export interface PreviewResponse {
+  filename: string;
+  total_rows: number;
+  columns: string[];
+  preview_rows: Record<string, unknown>[];
+  detected_schema: Record<string, string>;
+}
+
+// --- Alert types ---
+
+export interface ApiAlert {
+  id: number;
+  transaction_id: string;
+  risk_score: number;
+  risk_level: RiskLevel;
+  reason: string[] | null;
+  status: string;
+  reviewed_by: string | null;
+  reviewed_at: string | null;
+  created_at: string;
+  amount: number | null;
+  merchant_category: string | null;
+}
+
+export interface AlertStats {
+  total: number;
+  open: number;
+  reviewed: number;
+  confirmed_fraud: number;
+  false_positive: number;
+  high_risk: number;
+  medium_risk: number;
+}
+
+// --- Report types ---
+
+export interface ReportSummary {
+  total_transactions: number;
+  total_flagged: number;
+  high_risk: number;
+  medium_risk: number;
+  low_risk: number;
+  avg_risk_score: number;
+  total_amount_analyzed: number;
+  total_amount_at_risk: number;
+  fraud_rate_pct: number;
+  top_riskiest_transactions: Record<string, unknown>[];
+  category_breakdown: Record<string, unknown>[];
 }

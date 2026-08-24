@@ -1,193 +1,208 @@
-# AI Risk Manager - Financial Fraud Detection
+# AI Risk Manager
 
-AI Risk Manager is an end-to-end financial fraud detection and risk scoring platform combining machine learning, anomaly detection, explainability, and intelligent retrieval-augmented generation (RAG).
+Real-time financial fraud detection system with ML-powered risk scoring, analyst workflow dashboard, and full audit trail.
 
----
+## Architecture
 
-## 🛠️ Environment Setup & Local Execution
-
-### 1. Prerequisites
-- Python 3.10+ (or Python 3.11/3.12)
-- Git
-- PostgreSQL 14+ (for prediction persistence)
-
----
-
-### 2. PostgreSQL Setup (Local Development)
-
-#### Option A — Install PostgreSQL Locally
-
-1. Download and install [PostgreSQL](https://www.postgresql.org/download/) (includes `pgAdmin` and the `psql` CLI).
-
-2. Create a database and user:
-   ```sql
-   -- Connect as the default superuser
-   psql -U postgres
-
-   CREATE USER ai_risk_user WITH PASSWORD 'your_password';
-   CREATE DATABASE ai_risk_manager OWNER ai_risk_user;
-   GRANT ALL PRIVILEGES ON DATABASE ai_risk_manager TO ai_risk_user;
-   \q
-   ```
-
-3. Copy the example environment file and fill in your credentials:
-   ```bash
-   cp .env.example .env
-   # Edit .env with your actual PostgreSQL credentials
-   ```
-
-   > **Important:** Never commit `.env` to version control. It is already listed in `.gitignore`.
-
-#### Option B — Docker (No Local Install)
-
-```bash
-docker run -d \
-  --name ai-risk-pg \
-  -e POSTGRES_USER=postgres \
-  -e POSTGRES_PASSWORD=changeme \
-  -e POSTGRES_DB=ai_risk_manager \
-  -p 5432:5432 \
-  postgres:16-alpine
+```
+React Dashboard (localhost:3000)
+    ↓ Vite proxy
+FastAPI Backend (localhost:8000)
+    ↓
+ML Model (RandomForestClassifier) → Risk Score (0-100) → Risk Level (LOW/MEDIUM/HIGH)
+    ↓
+PostgreSQL / SQLite → Persisted transactions, predictions, analyst reviews, audit logs
 ```
 
-Then create the `.env` file matching these credentials.
+## Quick Start
 
-#### Tables
+### 1. Python Environment
 
-The application automatically creates three tables on startup:
-
-| Table | Description |
-|---|---|
-| `transactions` | Raw transaction data received by the API |
-| `risk_predictions` | Model output -- fraud probability, risk score, decision, and model version |
-| `audit_logs` | Immutable audit trail of system and analyst actions |
-
----
-
-### 2. Virtual Environment Setup
-
-#### Windows (PowerShell / Command Prompt)
-```powershell
-# Create virtual environment (if not already created)
+```bash
 python -m venv .venv
+.venv\Scripts\activate        # Windows
+# source .venv/bin/activate   # macOS/Linux
 
-# Activate virtual environment in PowerShell
-.\.venv\Scripts\Activate.ps1
-
-# (Alternative) In Command Prompt (cmd.exe)
-.\.venv\Scripts\activate.bat
-```
-
-> **Note for PowerShell Users**: If script execution is restricted, run:
-> ```powershell
-> Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope Process
-> ```
-
-#### macOS / Linux (Bash / Zsh)
-```bash
-# Create virtual environment
-python3 -m venv .venv
-
-# Activate virtual environment
-source .venv/bin/activate
-```
-
----
-
-### 3. Install Dependencies
-
-With the virtual environment activated, install the required packages:
-
-```bash
-python -m pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
----
+### 2. Database
 
-### 4. Running the Project Locally
+The system **automatically falls back to SQLite** if PostgreSQL is unavailable.
+SQLite database is created at `data/ai_risk_manager.db`.
 
-#### Start the FastAPI Application
+**Optional: PostgreSQL** (for production-like setup):
+
+```bash
+# Create database
+psql -U postgres -c "CREATE DATABASE ai_risk_manager;"
+```
+
+Configure in `.env`:
+```
+POSTGRES_USER=postgres
+POSTGRES_PASSWORD=your_password
+POSTGRES_HOST=localhost
+POSTGRES_PORT=5432
+POSTGRES_DB=ai_risk_manager
+```
+
+### 3. Train the Model
+
+```bash
+python -c "from src.model_training import train_model; train_model()"
+```
+
+This creates:
+- `models/risk_model.pkl` — trained RandomForestClassifier
+- `models/preprocessor.joblib` — fitted preprocessing pipeline
+- `models/anomaly_detector.joblib` — IsolationForest anomaly detector
+
+### 4. Start the Backend
+
 ```bash
 uvicorn api.main:app --reload --host 127.0.0.1 --port 8000
 ```
-- Interactive API Docs (Swagger): [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs)
-- Alternative Docs (ReDoc): [http://127.0.0.1:8000/redoc](http://127.0.0.1:8000/redoc)
 
-#### Launch Jupyter Notebook for Exploratory Data Analysis (EDA)
+API docs: http://localhost:8000/docs
+
+### 5. Start the Frontend
+
 ```bash
-jupyter notebook notebooks/EDA.ipynb
-# or
-jupyter lab
+cd frontend
+npm install
+npm run dev
 ```
 
-#### Run Tests
+Dashboard: http://localhost:3000
+
+## API Endpoints
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/health` | Health check |
+| POST | `/predict` | Score a transaction for fraud risk |
+| POST | `/explain` | Generate SHAP-based model explanation |
+| GET | `/transactions` | List all transactions with risk predictions |
+| GET | `/transactions/{id}` | Get single transaction with prediction |
+| GET | `/dashboard/stats` | Aggregated dashboard statistics |
+| POST | `/analyst/review` | Record analyst review start |
+| POST | `/analyst/decision` | Record final analyst decision |
+| GET | `/analyst/reviews` | List analyst reviews |
+| GET | `/audit/logs` | List audit log entries |
+
+## Real-Time Test Flow
+
+### Via API
+
 ```bash
-pytest
-# or
-python -m unittest discover -s tests
+# 1. Check health
+curl http://localhost:8000/health
+
+# 2. Submit a transaction for analysis
+curl -X POST http://localhost:8000/predict \
+  -H "Content-Type: application/json" \
+  -d '{
+    "transaction_id": "TXN_TEST_001",
+    "age": 35,
+    "gender": "M",
+    "merchant_category": "electronics",
+    "amount": 1250.00,
+    "transaction_type": "Wire_Transfer",
+    "card_type": "Credit",
+    "card_present": 0,
+    "device_type": "Web_Browser",
+    "distance_from_home": 140.5,
+    "distance_from_last_transaction": 80.0,
+    "high_risk_country": 1,
+    "velocity_last_24h": 6
+  }'
+
+# 3. Verify it's stored in the database
+curl http://localhost:8000/transactions
+
+# 4. View dashboard stats
+curl http://localhost:8000/dashboard/stats
 ```
 
----
+### Via React Dashboard
 
-### 5. API Endpoints
+1. Open http://localhost:3000
+2. Click **Analyze** in the sidebar
+3. Fill in transaction details and click **Analyze Transaction**
+4. View the ML prediction result (fraud probability, risk score, risk level)
+5. Navigate to **Dashboard** to see real aggregated stats from the database
+6. Navigate to **Transactions** to see all stored transactions
 
-| Method | Endpoint | Tag | Description |
-|---|---|---|---|
-| `GET` | `/health` | Operations | Liveness probe |
-| `POST` | `/predict` | Prediction | Score a transaction for fraud risk |
-| `POST` | `/analyst/review` | Analyst | Record that an analyst is reviewing a flagged transaction |
-| `POST` | `/analyst/decision` | Analyst | Record the final analyst decision (CONFIRM_FRAUD / FALSE_POSITIVE / ESCALATE) |
-| `GET` | `/audit/logs` | Audit | Retrieve audit log entries (optional `transaction_id` filter) |
+## Dashboard Pages
 
----
+- **Dashboard** — Real-time stats from `GET /dashboard/stats`: total transactions, flagged count, risk level distribution, category risk, daily trends, recent flagged transactions
+- **Transactions** — Full list from `GET /transactions` with search, risk level filter, and link to detail
+- **Transaction Detail** — Individual transaction with fraud probability, risk score, risk factors, SHAP model explanation, analyst review form
+- **Analyze** — Submit new transactions to the ML model for real-time fraud risk assessment
 
-## 📁 Project Structure
+## Configuration
 
-```text
-ai-risk-manager/
-├── data/
-│   ├── raw/
-│   ├── processed/
-│   └── knowledge_base/
-├── notebooks/
-│   └── EDA.ipynb
-├── src/
-│   ├── __init__.py
-│   ├── audit.py
-│   ├── config.py
-│   ├── data_loader.py
-│   ├── database.py
-│   ├── feature_engineering.py
-│   ├── model_training.py
-│   ├── model_inference.py
-│   ├── models_db.py
-│   ├── anomaly_detection.py
-│   ├── risk_scoring.py
-│   ├── explainability.py
-│   └── utils.py
+### Risk Thresholds (src/config.py)
+
+```python
+RISK_THRESHOLD_MEDIUM = 0.35   # P(fraud) >= this → MEDIUM
+RISK_THRESHOLD_HIGH   = 0.70   # P(fraud) >= this → HIGH
+```
+
+### Model Version
+
+```bash
+export MODEL_VERSION="1.0.0"
+```
+
+## Project Structure
+
+```
+AI-Risk-Manager/
 ├── api/
-│   ├── __init__.py
-│   ├── main.py
-│   └── routes.py
-├── rag/
-│   ├── __init__.py
-│   ├── document_loader.py
-│   ├── chunking.py
-│   ├── embeddings.py
-│   ├── vector_store.py
-│   ├── retriever.py
-│   └── rag_pipeline.py
+│   ├── main.py              # FastAPI app, CORS, lifespan
+│   └── routes.py            # All API endpoints
+├── src/
+│   ├── config.py            # Configuration, thresholds, paths
+│   ├── database.py          # PostgreSQL/SQLite engine, sessions
+│   ├── models_db.py         # SQLAlchemy ORM models
+│   ├── data_loader.py       # CSV loading, validation
+│   ├── feature_engineering.py # Temporal + domain features
+│   ├── model_training.py    # RandomForest training
+│   ├── model_inference.py   # FraudPredictor class
+│   ├── risk_scoring.py      # Probability → score → level
+│   ├── explainability.py    # SHAP explanations
+│   ├── anomaly_detection.py # IsolationForest
+│   ├── audit.py             # Audit logging
+│   └── retraining.py        # Controlled retraining
 ├── frontend/
-├── models/
-├── tests/
-│   ├── test_data.py
-│   ├── test_model.py
-│   └── test_api.py
-├── .env
-├── .env.example
-├── .gitignore
-├── requirements.txt
-├── README.md
-└── Dockerfile
+│   ├── src/
+│   │   ├── pages/           # Dashboard, Transactions, Analyze
+│   │   ├── services/api.ts  # Real API client
+│   │   └── components/      # Reusable UI components
+│   └── vite.config.ts       # Dev server + API proxy
+├── data/
+│   ├── raw/                 # Source CSV data
+│   └── knowledge_base/      # RAG documents
+├── models/                  # Trained model artifacts
+├── tests/                   # pytest test suite
+└── requirements.txt
 ```
+
+## Testing
+
+```bash
+# Run all tests
+python -m pytest tests/ -v
+
+# Run specific test file
+python -m pytest tests/test_api.py -v
+```
+
+## Tech Stack
+
+- **Backend**: Python, FastAPI, SQLAlchemy, scikit-learn, SHAP
+- **Frontend**: React 19, TypeScript, Vite, Recharts, React Router
+- **Database**: PostgreSQL (production) / SQLite (local dev fallback)
+- **ML**: RandomForestClassifier (150 trees, max_depth=14), IsolationForest anomaly detector

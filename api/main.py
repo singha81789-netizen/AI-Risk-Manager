@@ -14,6 +14,9 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from api.routes import _load_models, router
+from api.routes_upload import router as upload_router
+from api.routes_alerts import router as alerts_router
+from api.routes_reports import router as reports_router
 from src.audit import log_event
 from src.config import KB_MIN_DOCUMENTS
 from src.database import create_tables, init_engine
@@ -98,6 +101,9 @@ app.add_middleware(
 )
 
 app.include_router(router)
+app.include_router(upload_router)
+app.include_router(alerts_router)
+app.include_router(reports_router)
 
 
 # ---------------------------------------------------------------------------

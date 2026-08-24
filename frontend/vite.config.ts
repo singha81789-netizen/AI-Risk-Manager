@@ -6,7 +6,23 @@ export default defineConfig({
   server: {
     port: 3000,
     proxy: {
+      '/health': {
+        target: 'http://localhost:8000',
+        changeOrigin: true,
+      },
       '/predict': {
+        target: 'http://localhost:8000',
+        changeOrigin: true,
+      },
+      '/explain': {
+        target: 'http://localhost:8000',
+        changeOrigin: true,
+      },
+      '/transactions': {
+        target: 'http://localhost:8000',
+        changeOrigin: true,
+      },
+      '/dashboard': {
         target: 'http://localhost:8000',
         changeOrigin: true,
       },
@@ -18,7 +34,19 @@ export default defineConfig({
         target: 'http://localhost:8000',
         changeOrigin: true,
       },
-      '/health': {
+      '/upload': {
+        target: 'http://localhost:8000',
+        changeOrigin: true,
+      },
+      '/alerts': {
+        target: 'http://localhost:8000',
+        changeOrigin: true,
+      },
+      '/reports': {
+        target: 'http://localhost:8000',
+        changeOrigin: true,
+      },
+      '/thresholds': {
         target: 'http://localhost:8000',
         changeOrigin: true,
       },

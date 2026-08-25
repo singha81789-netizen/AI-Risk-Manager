@@ -1,6 +1,7 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
 import { BrowserRouter } from 'react-router-dom'
+import { ThemeProvider } from './contexts/ThemeContext'
 import { ToastProvider } from './components/common/Toast'
 import { CurrencyProvider } from './contexts/CurrencyContext'
 import App from './App'
@@ -9,11 +10,13 @@ import './styles/global.css'
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <BrowserRouter>
-      <ToastProvider>
-        <CurrencyProvider>
-          <App />
-        </CurrencyProvider>
-      </ToastProvider>
+      <ThemeProvider>
+        <ToastProvider>
+          <CurrencyProvider>
+            <App />
+          </CurrencyProvider>
+        </ToastProvider>
+      </ThemeProvider>
     </BrowserRouter>
   </React.StrictMode>,
 )

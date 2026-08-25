@@ -25,7 +25,7 @@ from src.config import ANOMALY_MODEL_FILE, MODEL_FILE, MODEL_VERSION, PREPROCESS
 from src.database import get_db_session
 from src.explainability import ModelExplainer
 from src.model_inference import FraudPredictor
-from src.models_db import AnalystReview, AuditLog, RiskPrediction, Transaction
+from src.models_db import Alert, AnalystReview, AuditLog, RiskPrediction, Transaction
 from src.utils import load_artifact, logger
 
 router = APIRouter()
@@ -841,6 +841,57 @@ def get_transaction(transaction_id: str) -> Dict[str, Any]:
 # Dashboard statistics endpoint
 # ---------------------------------------------------------------------------
 
+class DatasetOverview(BaseModel):
+    totalAmount: float
+    averageAmount: float
+    minAmount: float
+    maxAmount: float
+    uniqueCategories: int
+    uniqueMerchants: int
+    uniqueCustomers: int
+    dateRangeStart: Optional[str] = None
+    dateRangeEnd: Optional[str] = None
+    dataQualityScore: float
+
+class AiFinding(BaseModel):
+    id: str
+    type: str
+    severity: str
+    title: str
+    description: str
+    metric: Optional[str] = None
+    category: Optional[str] = None
+
+class AmountBucket(BaseModel):
+    range: str
+    count: int
+    flagged: int
+    avgRiskScore: float
+
+class DatasetHealth(BaseModel):
+    completeness: float
+    missingValues: int
+    duplicateRows: int
+    outlierCount: int
+    qualityGrade: str
+
+class ImportantAlert(BaseModel):
+    id: int
+    transactionId: str
+    riskScore: int
+    riskLevel: str
+    reason: Optional[List[str]] = None
+    createdAt: str
+    amount: Optional[float] = None
+    category: Optional[str] = None
+
+class RecommendedAction(BaseModel):
+    id: str
+    priority: str
+    title: str
+    description: str
+    category: str
+
 class DashboardStats(BaseModel):
     """Aggregated dashboard statistics computed from the database."""
     totalTransactions: int
@@ -856,6 +907,15 @@ class DashboardStats(BaseModel):
     recentTransactions: List[Dict[str, Any]]
     categoryRisk: List[Dict[str, Any]]
     trends: List[Dict[str, Any]]
+    # Extended fields
+    datasetOverview: Optional[DatasetOverview] = None
+    aiFindings: List[AiFinding] = []
+    aiSummary: str = ""
+    riskByAmountRange: List[AmountBucket] = []
+    datasetHealth: Optional[DatasetHealth] = None
+    importantAlerts: List[ImportantAlert] = []
+    recommendedActions: List[RecommendedAction] = []
+    riskFactors: List[Dict[str, Any]] = []
 
 
 @router.get(
@@ -1081,6 +1141,318 @@ def get_dashboard_stats(
                     for idx, t in enumerate(trends):
                         t[key] = values[idx]
 
+            # --- Dataset Overview ---
+            amount_stats = session.query(
+                func.sum(Transaction.amount),
+                func.avg(Transaction.amount),
+                func.min(Transaction.amount),
+                func.max(Transaction.amount),
+            ).first()
+
+            total_amount = float(amount_stats[0] or 0)
+            avg_amount = float(amount_stats[1] or 0)
+            min_amount = float(amount_stats[2] or 0)
+            max_amount = float(amount_stats[3] or 0)
+
+            unique_cats = session.query(func.count(func.distinct(Transaction.merchant_category))).scalar() or 0
+            unique_merchants = session.query(func.count(func.distinct(Transaction.merchant_id))).scalar() or 0
+            unique_customers = session.query(func.count(func.distinct(Transaction.customer_id))).scalar() or 0
+
+            earliest = session.query(func.min(Transaction.created_at)).scalar()
+            latest = session.query(func.max(Transaction.created_at)).scalar()
+
+            # Data quality: % of non-null amounts
+            non_null_amounts = session.query(func.count(Transaction.id)).filter(Transaction.amount.isnot(None)).scalar() or 0
+            data_quality = round((non_null_amounts / total * 100), 1) if total > 0 else 0
+
+            dataset_overview = DatasetOverview(
+                totalAmount=round(total_amount, 2),
+                averageAmount=round(avg_amount, 2),
+                minAmount=round(min_amount, 2),
+                maxAmount=round(max_amount, 2),
+                uniqueCategories=unique_cats,
+                uniqueMerchants=unique_merchants,
+                uniqueCustomers=unique_customers,
+                dateRangeStart=earliest.isoformat() if earliest else None,
+                dateRangeEnd=latest.isoformat() if latest else None,
+                dataQualityScore=data_quality,
+            )
+
+            # --- Risk by Amount Range ---
+            amount_buckets_def = [
+                (0, 50, "$0-$50"),
+                (50, 200, "$50-$200"),
+                (200, 500, "$200-$500"),
+                (500, 1000, "$500-$1K"),
+                (1000, 5000, "$1K-$5K"),
+                (5000, float('inf'), "$5K+"),
+            ]
+            risk_by_amount = []
+            for lo, hi, label in amount_buckets_def:
+                q = session.query(
+                    func.count(Transaction.id),
+                    func.avg(RiskPrediction.risk_score),
+                ).join(RiskPrediction, Transaction.transaction_id == RiskPrediction.transaction_id)
+                if hi == float('inf'):
+                    q = q.filter(Transaction.amount >= lo)
+                else:
+                    q = q.filter(Transaction.amount >= lo, Transaction.amount < hi)
+                cnt, avg_sc = q.first()
+                cnt = cnt or 0
+                avg_sc = float(avg_sc or 0)
+                flagged_in_bucket = session.query(func.count(RiskPrediction.id)).join(
+                    Transaction, Transaction.transaction_id == RiskPrediction.transaction_id
+                ).filter(
+                    RiskPrediction.risk_level.in_(["HIGH", "MEDIUM"]),
+                    Transaction.amount >= lo,
+                    *(Transaction.amount < hi if hi != float('inf') else []),
+                ).scalar() or 0
+                risk_by_amount.append(AmountBucket(
+                    range=label, count=cnt, flagged=flagged_in_bucket, avgRiskScore=round(avg_sc, 1),
+                ))
+
+            # --- Dataset Health ---
+            total_cells = total * 15  # approximate columns
+            missing_cells = 0
+            for col_name in ["transaction_id", "amount", "merchant_category", "customer_id", "timestamp"]:
+                nulls = session.query(func.count(Transaction.id)).filter(
+                    getattr(Transaction, col_name).is_(None)
+                ).scalar() or 0
+                missing_cells += nulls
+
+            duplicate_txn_ids = session.query(Transaction.transaction_id).group_by(
+                Transaction.transaction_id
+            ).having(func.count(Transaction.id) > 1).count()
+
+            outlier_count = session.query(func.count(RiskPrediction.id)).filter(
+                RiskPrediction.risk_score >= 80
+            ).scalar() or 0
+
+            completeness = round(((total_cells - missing_cells) / total_cells * 100), 1) if total_cells > 0 else 100
+            grade = "A" if completeness >= 95 else "B" if completeness >= 85 else "C" if completeness >= 70 else "D"
+
+            dataset_health = DatasetHealth(
+                completeness=completeness,
+                missingValues=missing_cells,
+                duplicateRows=duplicate_txn_ids,
+                outlierCount=outlier_count,
+                qualityGrade=grade,
+            )
+
+            # --- Risk Factors aggregation ---
+            factor_counts: Dict[str, int] = {}
+            factor_preds = session.query(RiskPrediction.triggered_risk_factors).filter(
+                RiskPrediction.triggered_risk_factors.isnot(None)
+            ).limit(500).all()
+            for (factors_json,) in factor_preds:
+                try:
+                    factors = json.loads(factors_json)
+                    if isinstance(factors, list):
+                        for f in factors:
+                            factor_counts[f] = factor_counts.get(f, 0) + 1
+                except (json.JSONDecodeError, TypeError):
+                    pass
+
+            risk_factors_list = sorted(
+                [{"factor": k, "count": v} for k, v in factor_counts.items()],
+                key=lambda x: x["count"],
+                reverse=True,
+            )[:10]
+
+            # --- Important Alerts (recent HIGH risk) ---
+            important_alerts_raw = (
+                session.query(Alert, Transaction)
+                .outerjoin(Transaction, Alert.transaction_id == Transaction.transaction_id)
+                .filter(Alert.risk_level == "HIGH")
+                .order_by(Alert.created_at.desc())
+                .limit(5)
+                .all()
+            )
+            important_alerts_list = []
+            for alert, txn in important_alerts_raw:
+                reasons = None
+                if alert.reason:
+                    try:
+                        reasons = json.loads(alert.reason)
+                    except (json.JSONDecodeError, TypeError):
+                        reasons = [alert.reason]
+                important_alerts_list.append(ImportantAlert(
+                    id=alert.id,
+                    transactionId=alert.transaction_id,
+                    riskScore=alert.risk_score,
+                    riskLevel=alert.risk_level,
+                    reason=reasons,
+                    createdAt=alert.created_at.isoformat() if alert.created_at else "",
+                    amount=txn.amount if txn else None,
+                    category=txn.merchant_category if txn else None,
+                ))
+
+            # --- AI Findings (computed from data) ---
+            ai_findings = []
+            if total > 0:
+                flagged_pct = (flagged / total * 100) if total > 0 else 0
+                high_risk_pct = (high_count / total * 100) if total > 0 else 0
+
+                # Top risk category
+                if category_risk:
+                    top_cat = category_risk[0]
+                    ai_findings.append(AiFinding(
+                        id="top-risk-category",
+                        type="risk_pattern",
+                        severity="high" if top_cat["riskScore"] >= 60 else "medium",
+                        title=f"Highest risk: {top_cat['category']}",
+                        description=f"{top_cat['category']} has avg risk score {top_cat['riskScore']} across {top_cat['transactionCount']} transactions.",
+                        metric=str(top_cat["riskScore"]),
+                        category=top_cat["category"],
+                    ))
+
+                # Flagged rate insight
+                if flagged_pct > 8:
+                    ai_findings.append(AiFinding(
+                        id="high-flagged-rate",
+                        type="anomaly",
+                        severity="high",
+                        title="Elevated flagged rate",
+                        description=f"{flagged_pct:.1f}% of transactions flagged — above 8% industry benchmark.",
+                        metric=f"{flagged_pct:.1f}%",
+                    ))
+                elif flagged_pct > 0:
+                    ai_findings.append(AiFinding(
+                        id="flagged-rate-normal",
+                        type="info",
+                        severity="low",
+                        title="Flagged rate within normal range",
+                        description=f"{flagged_pct:.1f}% flagged — within 2-8% industry benchmark.",
+                        metric=f"{flagged_pct:.1f}%",
+                    ))
+
+                # Average risk score insight
+                if avg_score > 50:
+                    ai_findings.append(AiFinding(
+                        id="high-avg-risk",
+                        type="anomaly",
+                        severity="high",
+                        title="Elevated average risk score",
+                        description=f"Average risk score is {avg_score}/100 — indicates heightened fraud risk across the dataset.",
+                        metric=str(avg_score),
+                    ))
+
+                # Declined rate
+                declined_pct = (declined / total * 100) if total > 0 else 0
+                if declined_pct > 15:
+                    ai_findings.append(AiFinding(
+                        id="high-decline-rate",
+                        type="risk_pattern",
+                        severity="medium",
+                        title="High decline rate",
+                        description=f"{declined_pct:.1f}% of transactions declined — may indicate systematic fraud attempts.",
+                        metric=f"{declined_pct:.1f}%",
+                    ))
+
+                # Pending review
+                if pending > 0:
+                    ai_findings.append(AiFinding(
+                        id="pending-reviews",
+                        type="action",
+                        severity="medium" if pending > 10 else "low",
+                        title=f"{pending} transactions awaiting review",
+                        description=f"{pending} high/medium risk transactions have not been reviewed by an analyst yet.",
+                        metric=str(pending),
+                    ))
+
+                # Data quality finding
+                if completeness < 90:
+                    ai_findings.append(AiFinding(
+                        id="data-quality",
+                        type="data_quality",
+                        severity="medium",
+                        title="Data completeness below threshold",
+                        description=f"Dataset completeness is {completeness}% — {missing_cells} missing values detected across key fields.",
+                        metric=f"{completeness}%",
+                    ))
+
+                # Anomaly finding based on amount variance
+                if max_amount > avg_amount * 10 and avg_amount > 0:
+                    ai_findings.append(AiFinding(
+                        id="amount-outlier",
+                        type="anomaly",
+                        severity="medium",
+                        title="Significant amount outliers detected",
+                        description=f"Max transaction (${max_amount:,.2f}) is {max_amount/avg_amount:.0f}x the average (${avg_amount:,.2f}) — potential structuring or unusual activity.",
+                        metric=f"${max_amount:,.2f}",
+                    ))
+
+            # --- AI Summary (natural language) ---
+            summary_parts = []
+            if total > 0:
+                summary_parts.append(
+                    f"Dataset contains {total:,} transactions totaling ${total_amount:,.2f}."
+                )
+                summary_parts.append(
+                    f"Average transaction amount is ${avg_amount:,.2f} "
+                    f"(range: ${min_amount:,.2f} - ${max_amount:,.2f})."
+                )
+                if flagged > 0:
+                    summary_parts.append(
+                        f"AI flagged {flagged:,} transactions ({flagged_pct:.1f}%) as potentially risky — "
+                        f"{high_count} high risk, {medium_count} medium risk."
+                    )
+                if avg_score > 0:
+                    summary_parts.append(f"Average risk score across all transactions: {avg_score}/100.")
+                if unique_cats > 0:
+                    summary_parts.append(f"Transactions span {unique_cats} categories and {unique_merchants:,} merchants.")
+                if pending > 0:
+                    summary_parts.append(f"⚠ {pending} flagged transactions still require analyst review.")
+                if declined_pct > 15:
+                    summary_parts.append(f"Decline rate of {declined_pct:.1f}% suggests potential fraud campaign.")
+            else:
+                summary_parts.append("No transactions found in the selected date range. Upload a CSV to begin analysis.")
+
+            ai_summary = " ".join(summary_parts)
+
+            # --- Recommended Actions ---
+            recommended_actions = []
+            if pending > 0:
+                recommended_actions.append(RecommendedAction(
+                    id="review-pending",
+                    priority="high",
+                    title=f"Review {pending} pending transactions",
+                    description="High/medium risk transactions awaiting analyst review. Delayed review increases fraud exposure.",
+                    category="review",
+                ))
+            if flagged_pct > 8:
+                recommended_actions.append(RecommendedAction(
+                    id="investigate-flagged",
+                    priority="high",
+                    title="Investigate elevated flagged rate",
+                    description=f"Flagged rate ({flagged_pct:.1f}%) exceeds 8% industry benchmark. Review risk thresholds and patterns.",
+                    category="investigation",
+                ))
+            if duplicate_txn_ids > 0:
+                recommended_actions.append(RecommendedAction(
+                    id="check-duplicates",
+                    priority="medium",
+                    title=f"Investigate {duplicate_txn_ids} duplicate transaction IDs",
+                    description="Duplicate transaction IDs may indicate data quality issues or potential structuring.",
+                    category="data_quality",
+                ))
+            if completeness < 90:
+                recommended_actions.append(RecommendedAction(
+                    id="improve-data",
+                    priority="medium",
+                    title="Improve data completeness",
+                    description=f"Dataset completeness is {completeness}%. Fill missing values for more accurate risk scoring.",
+                    category="data_quality",
+                ))
+            if avg_score > 50:
+                recommended_actions.append(RecommendedAction(
+                    id="adjust-thresholds",
+                    priority="low",
+                    title="Review risk thresholds",
+                    description="Average risk score is elevated. Consider adjusting sensitivity to reduce false positives.",
+                    category="configuration",
+                ))
+
             return DashboardStats(
                 totalTransactions=total,
                 flaggedTransactions=flagged,
@@ -1095,6 +1467,14 @@ def get_dashboard_stats(
                 recentTransactions=recent_list,
                 categoryRisk=category_risk,
                 trends=trends,
+                datasetOverview=dataset_overview,
+                aiFindings=ai_findings,
+                aiSummary=ai_summary,
+                riskByAmountRange=risk_by_amount,
+                datasetHealth=dataset_health,
+                importantAlerts=important_alerts_list,
+                recommendedActions=recommended_actions,
+                riskFactors=risk_factors_list,
             )
 
     except Exception as exc:

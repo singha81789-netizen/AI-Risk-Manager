@@ -38,6 +38,11 @@ export async function healthCheck(): Promise<{ status: string; service: string }
   return request('/health');
 }
 
+// --- Search ---
+export async function globalSearch(q: string): Promise<{ results: Record<string, unknown>[]; total: number }> {
+  return request(`/search?q=${encodeURIComponent(q)}`);
+}
+
 // --- Dashboard ---
 export async function getDashboardStats(params?: {
   days?: number;
@@ -171,13 +176,17 @@ export async function updateAlertStatus(
 }
 
 // --- Reports ---
-export async function getReportSummary(): Promise<ReportSummary> {
-  return request('/reports/summary');
+export async function getReportSummary(params?: { days?: number }): Promise<ReportSummary> {
+  const searchParams = new URLSearchParams();
+  if (params?.days) searchParams.set('days', String(params.days));
+  const qs = searchParams.toString();
+  return request(`/reports/summary${qs ? `?${qs}` : ''}`);
 }
 
-export async function exportFlaggedCsv(riskLevel?: string): Promise<Blob> {
+export async function exportFlaggedCsv(riskLevel?: string, days?: number): Promise<Blob> {
   const params = new URLSearchParams();
   if (riskLevel) params.set('risk_level', riskLevel);
+  if (days) params.set('days', String(days));
   const qs = params.toString();
   const res = await fetch(`${BASE_URL}/reports/export/csv${qs ? `?${qs}` : ''}`);
   if (!res.ok) {
@@ -186,8 +195,11 @@ export async function exportFlaggedCsv(riskLevel?: string): Promise<Blob> {
   return res.blob();
 }
 
-export async function exportPdfReport(): Promise<Blob> {
-  const res = await fetch(`${BASE_URL}/reports/export/pdf`);
+export async function exportPdfReport(days?: number): Promise<Blob> {
+  const params = new URLSearchParams();
+  if (days) params.set('days', String(days));
+  const qs = params.toString();
+  const res = await fetch(`${BASE_URL}/reports/export/pdf${qs ? `?${qs}` : ''}`);
   if (!res.ok) {
     throw new Error(`Export failed: ${res.status}`);
   }

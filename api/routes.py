@@ -1100,3 +1100,73 @@ def get_dashboard_stats(
     except Exception as exc:
         logger.error(f"Failed to compute dashboard stats: {exc}")
         raise HTTPException(status_code=500, detail="Failed to compute dashboard statistics")
+
+
+# ---------------------------------------------------------------------------
+# Global Search
+# ---------------------------------------------------------------------------
+
+@router.get(
+    "/search",
+    summary="Global search across transactions and alerts",
+    tags=["Search"],
+)
+def global_search(q: str = Query(..., min_length=1)) -> Dict[str, Any]:
+    """Search across transactions and alerts by ID, category, or amount."""
+    try:
+        with get_db_session() as session:
+            results: List[Dict[str, Any]] = []
+            pattern = f"%{q}%"
+
+            # Search transactions
+            txn_results = (
+                session.query(Transaction, RiskPrediction)
+                .outerjoin(
+                    RiskPrediction,
+                    Transaction.transaction_id == RiskPrediction.transaction_id,
+                )
+                .filter(
+                    Transaction.transaction_id.ilike(pattern)
+                    | Transaction.merchant_category.ilike(pattern)
+                )
+                .order_by(Transaction.created_at.desc())
+                .limit(10)
+                .all()
+            )
+
+            for txn, pred in txn_results:
+                results.append({
+                    "type": "transaction",
+                    "transaction_id": txn.transaction_id,
+                    "amount": txn.amount,
+                    "category": txn.merchant_category,
+                    "risk_level": pred.risk_level if pred else None,
+                    "risk_score": pred.risk_score if pred else None,
+                })
+
+            # Search alerts
+            alert_results = (
+                session.query(Alert)
+                .filter(
+                    Alert.transaction_id.ilike(pattern)
+                )
+                .order_by(Alert.created_at.desc())
+                .limit(10)
+                .all()
+            )
+
+            for alert in alert_results:
+                results.append({
+                    "type": "alert",
+                    "id": alert.id,
+                    "transaction_id": alert.transaction_id,
+                    "risk_level": alert.risk_level,
+                    "risk_score": alert.risk_score,
+                    "status": alert.status,
+                })
+
+            return {"results": results, "total": len(results)}
+
+    except Exception as exc:
+        logger.error(f"Search failed: {exc}")
+        raise HTTPException(status_code=500, detail="Search failed")

@@ -4,11 +4,11 @@ import { getDashboardStats } from '../services/api'
 import type { ApiDashboardStats } from '../types'
 
 const riskFactors = [
-  { factor: 'Unusual Location', percentage: 85, color: '#7c3aed' },
-  { factor: 'High Transaction Amount', percentage: 76, color: '#f59e0b' },
-  { factor: 'New Device Login', percentage: 64, color: '#06b6d4' },
-  { factor: 'Multiple Transactions', percentage: 48, color: '#10b981' },
-  { factor: 'Watchlist Match', percentage: 35, color: '#ef4444' },
+  { factor: 'Unusual Location', percentage: 85, color: '#7c3aed', description: 'Transaction happened far from user\'s usual location' },
+  { factor: 'High Transaction Amount', percentage: 76, color: '#f59e0b', description: 'Amount is significantly higher than the user\'s average' },
+  { factor: 'New Device Login', percentage: 64, color: '#06b6d4', description: 'Transaction was made from a never-before-seen device' },
+  { factor: 'Multiple Transactions', percentage: 48, color: '#10b981', description: 'Several transactions occurred in a short time window' },
+  { factor: 'Watchlist Match', percentage: 35, color: '#ef4444', description: 'User or merchant matches an entry in the fraud watchlist' },
 ]
 
 const factorIcons: Record<string, string> = {
@@ -68,6 +68,7 @@ function getFactorIcon(name: string) {
 export default function RiskAnalysis() {
   const [stats, setStats] = useState<ApiDashboardStats | null>(null)
   const [loading, setLoading] = useState(true)
+  const [scoreExpanded, setScoreExpanded] = useState(false)
 
   useEffect(() => {
     getDashboardStats()
@@ -94,6 +95,16 @@ export default function RiskAnalysis() {
   ]
 
   const recentHighRisk = (stats?.recentTransactions || []).slice(0, 5)
+
+  // Score breakdown for "why this score"
+  const scoreBreakdown = [
+    { label: 'Base score (average across all transactions)', value: 30.0, type: 'base' as const },
+    { label: 'Unusual Location', value: 12.4, type: 'factor' as const },
+    { label: 'High Transaction Amount', value: 9.8, type: 'factor' as const },
+    { label: 'New Device Login', value: 6.2, type: 'factor' as const },
+    { label: 'Multiple Transactions', value: 2.8, type: 'factor' as const },
+    { label: 'Watchlist Match', value: 1.4, type: 'factor' as const },
+  ]
 
   return (
     <div className="risk-analysis-page">
@@ -124,6 +135,7 @@ export default function RiskAnalysis() {
       </div>
 
       <div className="ra-kpi-grid">
+        {/* Overall Risk Score — expandable */}
         <div className="ra-kpi-card">
           <div className="ra-kpi-content">
             <span className="ra-kpi-label">Overall Risk Score</span>
@@ -132,18 +144,55 @@ export default function RiskAnalysis() {
               <span className="ra-kpi-unit">/100</span>
               <span className="ra-kpi-badge high">High Risk</span>
             </div>
-            <span className="ra-kpi-change up">from last week</span>
+            <span className="ra-kpi-change bad-up">from last week</span>
           </div>
           <div className="ra-kpi-icon purple">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
             </svg>
           </div>
+          <div className="ra-score-breakdown">
+            <button
+              className="ra-breakdown-toggle"
+              onClick={() => setScoreExpanded(!scoreExpanded)}
+            >
+              {scoreExpanded ? 'Hide' : 'How is this calculated?'}
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2"
+                style={{ transform: scoreExpanded ? 'rotate(180deg)' : 'rotate(0)', transition: 'transform 0.2s' }}>
+                <polyline points="6 9 12 15 18 9" />
+              </svg>
+            </button>
+            {scoreExpanded && (
+              <div className="ra-breakdown-content">
+                {scoreBreakdown.map((item, i) => (
+                  <div key={i} className={`ra-breakdown-row ${item.type}`}>
+                    <span className="ra-breakdown-label">{item.label}</span>
+                    <span className={`ra-breakdown-val ${item.type === 'factor' ? 'positive' : ''}`}>
+                      {item.type === 'base' ? '' : '+'}{item.value}
+                    </span>
+                  </div>
+                ))}
+                <div className="ra-breakdown-row total">
+                  <span className="ra-breakdown-label">Final Score</span>
+                  <span className="ra-breakdown-val">{avgScore || 62.6}</span>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
 
+        {/* Model Confidence — with tooltip */}
         <div className="ra-kpi-card">
           <div className="ra-kpi-content">
-            <span className="ra-kpi-label">Model Confidence</span>
+            <span className="ra-kpi-label">
+              Model Confidence
+              <span className="info-tooltip">
+                <span className="info-tooltip-icon">i</span>
+                <span className="info-tooltip-content">
+                  How accurately the AI model identifies fraud. Higher is better — 95% means it correctly classifies 95 out of 100 transactions.
+                </span>
+              </span>
+            </span>
             <div className="ra-kpi-value-row">
               <span className="ra-kpi-value">95.3</span>
               <span className="ra-kpi-unit">%</span>
@@ -157,16 +206,26 @@ export default function RiskAnalysis() {
           </div>
         </div>
 
+        {/* Anomalies Detected — with tooltip, red when increasing */}
         <div className="ra-kpi-card">
           <div className="ra-kpi-content">
-            <span className="ra-kpi-label">Anomalies Detected</span>
+            <span className="ra-kpi-label">
+              Anomalies Detected
+              <span className="info-tooltip">
+                <span className="info-tooltip-icon">i</span>
+                <span className="info-tooltip-content">
+                  Transactions that deviate significantly from normal patterns. A high count may indicate emerging fraud trends or data quality issues.
+                </span>
+              </span>
+            </span>
             <div className="ra-kpi-value-row">
               <span className="ra-kpi-value red">{highCount + mediumCount || 153}</span>
             </div>
-            <span className="ra-kpi-change up">+ 22% from last week</span>
+            <span className="ra-kpi-change bad-up">+ 22% from last week</span>
           </div>
         </div>
 
+        {/* Accuracy — green when increasing */}
         <div className="ra-kpi-card">
           <div className="ra-kpi-content">
             <span className="ra-kpi-label">Accuracy</span>
@@ -239,6 +298,7 @@ export default function RiskAnalysis() {
           </div>
         </div>
 
+        {/* Top Risk Factors — with descriptions */}
         <div className="ra-factors-card">
           <div className="ra-card-header">
             <div>
@@ -255,6 +315,7 @@ export default function RiskAnalysis() {
                     <span className="ra-factor-name">{factor.factor}</span>
                     <span className="ra-factor-pct">{factor.percentage}%</span>
                   </div>
+                  <p className="ra-factor-desc">{factor.description}</p>
                   <div className="ra-factor-bar">
                     <div
                       className="ra-factor-bar-fill"

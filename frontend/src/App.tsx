@@ -9,6 +9,7 @@ import Reports from './pages/Reports'
 import Features from './pages/Features'
 import Settings from './pages/Settings'
 import CsvUpload from './pages/CsvUpload'
+import Glossary from './pages/Glossary'
 import Login from './pages/Login'
 
 export default function App() {
@@ -25,6 +26,7 @@ export default function App() {
         <Route path="/reports" element={<Reports />} />
         <Route path="/features" element={<Features />} />
         <Route path="/settings" element={<Settings />} />
+        <Route path="/glossary" element={<Glossary />} />
       </Route>
     </Routes>
   )

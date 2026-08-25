@@ -7,10 +7,10 @@ Generates PDF and CSV reports summarizing fraud analysis results.
 import csv
 import io
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy import func
@@ -40,6 +40,7 @@ class ReportSummary(BaseModel):
     fraud_rate_pct: float
     top_riskiest_transactions: list
     category_breakdown: list
+    previous_period: Optional[Dict[str, Any]] = None
 
 
 # ---------------------------------------------------------------------------
@@ -52,44 +53,104 @@ class ReportSummary(BaseModel):
     summary="Get report summary statistics",
     tags=["Reports"],
 )
-def get_report_summary() -> ReportSummary:
+def get_report_summary(
+    days: int = Query(30, ge=1, le=365, description="Number of days for report period"),
+) -> ReportSummary:
     """Compute summary statistics for report generation."""
     try:
         with get_db_session() as session:
-            total = session.query(func.count(Transaction.id)).scalar() or 0
+            now = datetime.now(timezone.utc)
+            period_start = now - timedelta(days=days)
+            prev_start = period_start - timedelta(days=days)
 
-            high = session.query(func.count(RiskPrediction.id)).filter(
+            # Current period counts
+            total = session.query(func.count(Transaction.id)).filter(
+                Transaction.created_at >= period_start
+            ).scalar() or 0
+
+            high = session.query(func.count(RiskPrediction.id)).join(
+                Transaction, Transaction.transaction_id == RiskPrediction.transaction_id
+            ).filter(
+                Transaction.created_at >= period_start,
                 RiskPrediction.risk_level == "HIGH"
             ).scalar() or 0
-            medium = session.query(func.count(RiskPrediction.id)).filter(
+
+            medium = session.query(func.count(RiskPrediction.id)).join(
+                Transaction, Transaction.transaction_id == RiskPrediction.transaction_id
+            ).filter(
+                Transaction.created_at >= period_start,
                 RiskPrediction.risk_level == "MEDIUM"
             ).scalar() or 0
-            low = session.query(func.count(RiskPrediction.id)).filter(
+
+            low = session.query(func.count(RiskPrediction.id)).join(
+                Transaction, Transaction.transaction_id == RiskPrediction.transaction_id
+            ).filter(
+                Transaction.created_at >= period_start,
                 RiskPrediction.risk_level == "LOW"
             ).scalar() or 0
+
             flagged = high + medium
 
-            avg_score = session.query(func.avg(RiskPrediction.risk_score)).scalar()
+            avg_score = session.query(func.avg(RiskPrediction.risk_score)).join(
+                Transaction, Transaction.transaction_id == RiskPrediction.transaction_id
+            ).filter(
+                Transaction.created_at >= period_start
+            ).scalar()
             avg_score = round(float(avg_score), 1) if avg_score else 0.0
 
-            total_amount = session.query(func.sum(Transaction.amount)).scalar()
+            total_amount = session.query(func.sum(Transaction.amount)).filter(
+                Transaction.created_at >= period_start
+            ).scalar()
             total_amount = round(float(total_amount), 2) if total_amount else 0.0
 
-            # Amount at risk (HIGH + MEDIUM)
             amount_at_risk = (
                 session.query(func.sum(Transaction.amount))
                 .join(RiskPrediction, Transaction.transaction_id == RiskPrediction.transaction_id)
-                .filter(RiskPrediction.risk_level.in_(["HIGH", "MEDIUM"]))
+                .filter(
+                    Transaction.created_at >= period_start,
+                    RiskPrediction.risk_level.in_(["HIGH", "MEDIUM"]),
+                )
                 .scalar()
             )
             amount_at_risk = round(float(amount_at_risk), 2) if amount_at_risk else 0.0
 
             fraud_rate = (flagged / total * 100) if total > 0 else 0.0
 
+            # Previous period comparison
+            prev_total = session.query(func.count(Transaction.id)).filter(
+                Transaction.created_at >= prev_start,
+                Transaction.created_at < period_start,
+            ).scalar() or 0
+
+            prev_flagged = session.query(func.count(RiskPrediction.id)).join(
+                Transaction, Transaction.transaction_id == RiskPrediction.transaction_id
+            ).filter(
+                Transaction.created_at >= prev_start,
+                Transaction.created_at < period_start,
+                RiskPrediction.risk_level.in_(["HIGH", "MEDIUM"]),
+            ).scalar() or 0
+
+            prev_avg_score = session.query(func.avg(RiskPrediction.risk_score)).join(
+                Transaction, Transaction.transaction_id == RiskPrediction.transaction_id
+            ).filter(
+                Transaction.created_at >= prev_start,
+                Transaction.created_at < period_start,
+            ).scalar()
+            prev_avg_score = round(float(prev_avg_score), 1) if prev_avg_score else 0.0
+
+            prev_fraud_rate = (prev_flagged / prev_total * 100) if prev_total > 0 else 0.0
+
+            previous_period = {
+                "total_flagged": prev_flagged,
+                "avg_risk_score": prev_avg_score,
+                "fraud_rate_pct": round(prev_fraud_rate, 2),
+            }
+
             # Top riskiest transactions
             top_risky = (
                 session.query(Transaction, RiskPrediction)
                 .join(RiskPrediction, Transaction.transaction_id == RiskPrediction.transaction_id)
+                .filter(Transaction.created_at >= period_start)
                 .order_by(RiskPrediction.risk_score.desc())
                 .limit(10)
                 .all()
@@ -114,7 +175,10 @@ def get_report_summary() -> ReportSummary:
                     func.sum(Transaction.amount).label("total_amount"),
                 )
                 .join(RiskPrediction, Transaction.transaction_id == RiskPrediction.transaction_id)
-                .filter(Transaction.merchant_category.isnot(None))
+                .filter(
+                    Transaction.created_at >= period_start,
+                    Transaction.merchant_category.isnot(None),
+                )
                 .group_by(Transaction.merchant_category)
                 .order_by(func.count(RiskPrediction.id).desc())
                 .all()
@@ -141,6 +205,7 @@ def get_report_summary() -> ReportSummary:
                 fraud_rate_pct=round(fraud_rate, 2),
                 top_riskiest_transactions=top_list,
                 category_breakdown=category_breakdown,
+                previous_period=previous_period,
             )
 
     except Exception as exc:
@@ -153,17 +218,20 @@ def get_report_summary() -> ReportSummary:
     summary="Export flagged transactions as CSV",
     tags=["Reports"],
 )
-def export_flagged_csv(risk_level: Optional[str] = None) -> StreamingResponse:
-    """Download flagged transactions as a CSV file.
-
-    If risk_level is specified, only exports transactions at that level.
-    Otherwise exports all HIGH and MEDIUM risk transactions.
-    """
+def export_flagged_csv(
+    risk_level: Optional[str] = None,
+    days: int = Query(30, ge=1, le=365),
+) -> StreamingResponse:
+    """Download flagged transactions as a CSV file."""
     try:
         with get_db_session() as session:
+            now = datetime.now(timezone.utc)
+            period_start = now - timedelta(days=days)
+
             query = (
                 session.query(Transaction, RiskPrediction)
                 .join(RiskPrediction, Transaction.transaction_id == RiskPrediction.transaction_id)
+                .filter(Transaction.created_at >= period_start)
             )
 
             if risk_level:
@@ -224,36 +292,61 @@ def export_flagged_csv(risk_level: Optional[str] = None) -> StreamingResponse:
     summary="Generate and download a PDF report",
     tags=["Reports"],
 )
-def export_pdf_report() -> StreamingResponse:
-    """Generate a PDF report summarizing the fraud analysis results.
-
-    Uses a lightweight HTML-to-PDF approach for simplicity.
-    """
+def export_pdf_report(
+    days: int = Query(30, ge=1, le=365),
+) -> StreamingResponse:
+    """Generate a PDF report summarizing the fraud analysis results."""
     try:
         with get_db_session() as session:
-            # Gather stats
-            total = session.query(func.count(Transaction.id)).scalar() or 0
-            high = session.query(func.count(RiskPrediction.id)).filter(
+            now = datetime.now(timezone.utc)
+            period_start = now - timedelta(days=days)
+
+            total = session.query(func.count(Transaction.id)).filter(
+                Transaction.created_at >= period_start
+            ).scalar() or 0
+
+            high = session.query(func.count(RiskPrediction.id)).join(
+                Transaction, Transaction.transaction_id == RiskPrediction.transaction_id
+            ).filter(
+                Transaction.created_at >= period_start,
                 RiskPrediction.risk_level == "HIGH"
             ).scalar() or 0
-            medium = session.query(func.count(RiskPrediction.id)).filter(
+
+            medium = session.query(func.count(RiskPrediction.id)).join(
+                Transaction, Transaction.transaction_id == RiskPrediction.transaction_id
+            ).filter(
+                Transaction.created_at >= period_start,
                 RiskPrediction.risk_level == "MEDIUM"
             ).scalar() or 0
-            low = session.query(func.count(RiskPrediction.id)).filter(
+
+            low = session.query(func.count(RiskPrediction.id)).join(
+                Transaction, Transaction.transaction_id == RiskPrediction.transaction_id
+            ).filter(
+                Transaction.created_at >= period_start,
                 RiskPrediction.risk_level == "LOW"
             ).scalar() or 0
+
             flagged = high + medium
 
-            avg_score = session.query(func.avg(RiskPrediction.risk_score)).scalar()
+            avg_score = session.query(func.avg(RiskPrediction.risk_score)).join(
+                Transaction, Transaction.transaction_id == RiskPrediction.transaction_id
+            ).filter(
+                Transaction.created_at >= period_start
+            ).scalar()
             avg_score = round(float(avg_score), 1) if avg_score else 0.0
 
-            total_amount = session.query(func.sum(Transaction.amount)).scalar()
+            total_amount = session.query(func.sum(Transaction.amount)).filter(
+                Transaction.created_at >= period_start
+            ).scalar()
             total_amount = round(float(total_amount), 2) if total_amount else 0.0
 
             amount_at_risk = (
                 session.query(func.sum(Transaction.amount))
                 .join(RiskPrediction, Transaction.transaction_id == RiskPrediction.transaction_id)
-                .filter(RiskPrediction.risk_level.in_(["HIGH", "MEDIUM"]))
+                .filter(
+                    Transaction.created_at >= period_start,
+                    RiskPrediction.risk_level.in_(["HIGH", "MEDIUM"]),
+                )
                 .scalar()
             )
             amount_at_risk = round(float(amount_at_risk), 2) if amount_at_risk else 0.0
@@ -264,13 +357,15 @@ def export_pdf_report() -> StreamingResponse:
             top_risky = (
                 session.query(Transaction, RiskPrediction)
                 .join(RiskPrediction, Transaction.transaction_id == RiskPrediction.transaction_id)
+                .filter(Transaction.created_at >= period_start)
                 .order_by(RiskPrediction.risk_score.desc())
                 .limit(20)
                 .all()
             )
 
             # Build HTML report
-            now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+            generated_at = now.strftime("%Y-%m-%d %H:%M UTC")
+            period_label = f"Last {days} days"
             rows_html = ""
             for i, (txn, pred) in enumerate(top_risky, 1):
                 factors = ""
@@ -320,7 +415,7 @@ def export_pdf_report() -> StreamingResponse:
             </head>
             <body>
                 <h1>AI Risk Manager - Fraud Analysis Report</h1>
-                <p class="meta">Generated: {now} | Model Version: {MODEL_VERSION}</p>
+                <p class="meta">Generated: {generated_at} | Period: {period_label} | Model Version: {MODEL_VERSION}</p>
 
                 <h2>Executive Summary</h2>
                 <div class="stats-grid">
@@ -381,16 +476,14 @@ def export_pdf_report() -> StreamingResponse:
                 styles = getSampleStyleSheet()
                 story = []
 
-                # Title
                 title_style = ParagraphStyle(
                     'CustomTitle', parent=styles['Title'],
                     fontSize=22, spaceAfter=20, textColor=colors.HexColor('#1e1b4b'),
                 )
                 story.append(Paragraph("AI Risk Manager - Fraud Analysis Report", title_style))
-                story.append(Paragraph(f"Generated: {now} | Model Version: {MODEL_VERSION}", styles['Normal']))
+                story.append(Paragraph(f"Generated: {generated_at} | Period: {period_label} | Model Version: {MODEL_VERSION}", styles['Normal']))
                 story.append(Spacer(1, 20))
 
-                # Summary stats
                 story.append(Paragraph("Executive Summary", styles['Heading2']))
                 summary_data = [
                     ['Metric', 'Value'],
@@ -411,7 +504,6 @@ def export_pdf_report() -> StreamingResponse:
                 story.append(t)
                 story.append(Spacer(1, 20))
 
-                # Risk distribution
                 story.append(Paragraph("Risk Level Distribution", styles['Heading2']))
                 dist_data = [
                     ['Level', 'Count', '% of Total'],
@@ -429,7 +521,6 @@ def export_pdf_report() -> StreamingResponse:
                 story.append(t2)
                 story.append(Spacer(1, 20))
 
-                # Top risky transactions
                 story.append(Paragraph("Top Riskiest Transactions", styles['Heading2']))
                 risky_data = [['#', 'Txn ID', 'Amount', 'Category', 'Score', 'Level', 'Prob']]
                 for i, (txn, pred) in enumerate(top_risky[:15], 1):
@@ -465,7 +556,6 @@ def export_pdf_report() -> StreamingResponse:
                 )
 
             except ImportError:
-                # reportlab not available — return HTML as a downloadable file
                 logger.warning("reportlab not available, returning HTML report instead of PDF")
                 timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
                 filename = f"ai_risk_report_{timestamp}.html"

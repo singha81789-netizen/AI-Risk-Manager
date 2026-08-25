@@ -213,6 +213,11 @@ export interface ReportSummary {
   fraud_rate_pct: number;
   top_riskiest_transactions: Record<string, unknown>[];
   category_breakdown: Record<string, unknown>[];
+  previous_period?: {
+    total_flagged: number;
+    avg_risk_score: number;
+    fraud_rate_pct: number;
+  } | null;
 }
 
 // --- AI Models types ---

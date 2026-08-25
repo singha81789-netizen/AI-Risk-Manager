@@ -1,30 +1,87 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, BarChart, Bar } from 'recharts'
 import { getDashboardStats } from '../services/api'
 import type { ApiDashboardStats } from '../types'
+
+function useCountUp(target: number, duration = 1200, enabled = true): number {
+  const [value, setValue] = useState(0)
+  const frameRef = useRef<number>(0)
+
+  useEffect(() => {
+    if (!enabled || target === 0) {
+      setValue(target)
+      return
+    }
+    const start = performance.now()
+    const animate = (now: number) => {
+      const elapsed = now - start
+      const progress = Math.min(elapsed / duration, 1)
+      const eased = 1 - Math.pow(1 - progress, 3)
+      setValue(Math.round(eased * target))
+      if (progress < 1) {
+        frameRef.current = requestAnimationFrame(animate)
+      }
+    }
+    frameRef.current = requestAnimationFrame(animate)
+    return () => cancelAnimationFrame(frameRef.current)
+  }, [target, duration, enabled])
+
+  return value
+}
+
+type DateRange = '1d' | '7d' | '30d' | 'custom'
 
 export default function Dashboard() {
   const [stats, setStats] = useState<ApiDashboardStats | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
+  const [dateRange, setDateRange] = useState<DateRange>('7d')
+  const [customStart, setCustomStart] = useState('')
+  const [customEnd, setCustomEnd] = useState('')
 
-  useEffect(() => {
-    loadStats()
-  }, [])
-
-  async function loadStats() {
+  const loadStats = useCallback(async () => {
     try {
       setLoading(true)
-      const data = await getDashboardStats()
+      const params: { days?: number; start_date?: string; end_date?: string } = {}
+      if (dateRange === '1d') params.days = 1
+      else if (dateRange === '7d') params.days = 7
+      else if (dateRange === '30d') params.days = 30
+      else if (dateRange === 'custom' && customStart && customEnd) {
+        params.start_date = customStart
+        params.end_date = customEnd
+      }
+      const data = await getDashboardStats(params)
       setStats(data)
+      setLastUpdated(new Date())
     } catch (err: any) {
       setError(err.message || 'Failed to load dashboard data')
     } finally {
       setLoading(false)
     }
-  }
+  }, [dateRange, customStart, customEnd])
 
-  if (loading) {
+  useEffect(() => {
+    loadStats()
+  }, [loadStats])
+
+  const totalTx = stats?.totalTransactions ?? 0
+  const flaggedTx = stats?.flaggedTransactions ?? 0
+  const approvedTx = stats?.approvedTransactions ?? 0
+  const avgRisk = stats?.averageRiskScore ?? 0
+
+  const animTotal = useCountUp(totalTx, 1200, !loading)
+  const animFlagged = useCountUp(flaggedTx, 1200, !loading)
+  const animApproved = useCountUp(approvedTx, 1200, !loading)
+  const animAvgRisk = useCountUp(Math.round(avgRisk), 1200, !loading)
+
+  const rangeLabel = dateRange === '1d' ? 'Today'
+    : dateRange === '7d' ? 'Last 7 Days'
+    : dateRange === '30d' ? 'Last 30 Days'
+    : customStart && customEnd ? `${customStart} to ${customEnd}`
+    : 'Custom Range'
+
+  if (loading && !stats) {
     return (
       <div className="dashboard-page">
         <div className="loading-state">
@@ -35,7 +92,7 @@ export default function Dashboard() {
     )
   }
 
-  if (error) {
+  if (error && !stats) {
     return (
       <div className="dashboard-page">
         <div className="error-state">
@@ -68,14 +125,55 @@ export default function Dashboard() {
   return (
     <div className="dashboard-page">
       <div className="dashboard-header">
-        <h1>Dashboard</h1>
-        <button onClick={loadStats} className="refresh-btn">
-          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2">
-            <polyline points="23 4 23 10 17 10" />
-            <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
-          </svg>
-          Refresh
-        </button>
+        <div className="dashboard-header-left">
+          <h1>Dashboard</h1>
+          <div className="date-range-filter">
+            {(['1d', '7d', '30d', 'custom'] as DateRange[]).map((range) => (
+              <button
+                key={range}
+                className={`date-range-btn ${dateRange === range ? 'active' : ''}`}
+                onClick={() => setDateRange(range)}
+              >
+                {range === '1d' ? 'Today' : range === '7d' ? '7 Days' : range === '30d' ? '30 Days' : 'Custom'}
+              </button>
+            ))}
+            {dateRange === 'custom' && (
+              <div className="custom-date-inputs">
+                <input
+                  type="date"
+                  value={customStart}
+                  onChange={(e) => setCustomStart(e.target.value)}
+                  className="custom-date-input"
+                />
+                <span className="date-separator">to</span>
+                <input
+                  type="date"
+                  value={customEnd}
+                  onChange={(e) => setCustomEnd(e.target.value)}
+                  className="custom-date-input"
+                />
+              </div>
+            )}
+          </div>
+        </div>
+        <div className="dashboard-header-right">
+          {lastUpdated && (
+            <span className="last-updated">
+              Last updated: {lastUpdated.toLocaleDateString('en-US', {
+                month: 'short', day: 'numeric', year: 'numeric',
+              })} {lastUpdated.toLocaleTimeString('en-US', {
+                hour: 'numeric', minute: '2-digit', hour12: true,
+              })}
+            </span>
+          )}
+          <button onClick={loadStats} className="refresh-btn" disabled={loading}>
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" className={loading ? 'spinning' : ''}>
+              <polyline points="23 4 23 10 17 10" />
+              <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
+            </svg>
+            Refresh
+          </button>
+        </div>
       </div>
 
       <div className="dashboard-stats-grid">
@@ -88,7 +186,7 @@ export default function Dashboard() {
           </div>
           <div className="stat-content">
             <span className="stat-label">Total Transactions</span>
-            <span className="stat-value">{stats.totalTransactions.toLocaleString()}</span>
+            <span className="stat-value">{animTotal.toLocaleString()}</span>
           </div>
         </div>
 
@@ -101,8 +199,16 @@ export default function Dashboard() {
             </svg>
           </div>
           <div className="stat-content">
-            <span className="stat-label">Flagged Transactions</span>
-            <span className="stat-value">{stats.flaggedTransactions.toLocaleString()}</span>
+            <span className="stat-label">
+              Flagged Transactions
+              <span className="info-tooltip">
+                <span className="info-tooltip-icon">i</span>
+                <span className="info-tooltip-content">
+                  Transactions flagged by our AI as potentially risky (high or medium risk). Industry average is 2-8% of all transactions.
+                </span>
+              </span>
+            </span>
+            <span className="stat-value">{animFlagged.toLocaleString()}</span>
             <span className="stat-sublabel">{stats.highRiskCount} high risk</span>
           </div>
         </div>
@@ -116,7 +222,7 @@ export default function Dashboard() {
           </div>
           <div className="stat-content">
             <span className="stat-label">Approved</span>
-            <span className="stat-value">{stats.approvedTransactions.toLocaleString()}</span>
+            <span className="stat-value">{animApproved.toLocaleString()}</span>
             <span className="stat-sublabel">Transactions safe</span>
           </div>
         </div>
@@ -130,8 +236,16 @@ export default function Dashboard() {
             </svg>
           </div>
           <div className="stat-content">
-            <span className="stat-label">Avg Risk Score</span>
-            <span className="stat-value">{stats.averageRiskScore} <span className="stat-unit">/100</span></span>
+            <span className="stat-label">
+              Avg Risk Score
+              <span className="info-tooltip">
+                <span className="info-tooltip-icon">i</span>
+                <span className="info-tooltip-content">
+                  The average risk score (0-100) across all transactions. Higher scores indicate greater fraud risk. Typical range is 20-40.
+                </span>
+              </span>
+            </span>
+            <span className="stat-value">{animAvgRisk} <span className="stat-unit">/100</span></span>
             <span className="stat-sublabel">{stats.pendingReview} pending review</span>
           </div>
         </div>
@@ -139,7 +253,7 @@ export default function Dashboard() {
 
       <div className="dashboard-charts-row">
         <div className="chart-card risk-overview">
-          <h3>Risk Trends (Last 7 Days)</h3>
+          <h3>Risk Trends ({rangeLabel})</h3>
           <div className="chart-legend">
             <span className="legend-item">
               <span className="legend-dot" style={{ background: '#10b981' }} />

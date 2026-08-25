@@ -7,11 +7,15 @@ Run locally with:
 Interactive docs are served at /docs (Swagger) and /redoc (ReDoc).
 """
 
+import os
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
+from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 
 from api.routes import _load_models, router
 from api.routes_upload import router as upload_router
@@ -161,3 +165,26 @@ def health_check():
         "service": "ai-risk-manager",
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
+
+
+# ---------------------------------------------------------------------------
+# Serve frontend static files (built React app)
+# ---------------------------------------------------------------------------
+
+FRONTEND_DIR = Path(__file__).resolve().parent.parent / "frontend" / "dist"
+
+if FRONTEND_DIR.exists():
+    app.mount("/assets", StaticFiles(directory=str(FRONTEND_DIR / "assets")), name="static-assets")
+
+    @app.get("/{full_path:path}", include_in_schema=False)
+    async def serve_spa(request: Request, full_path: str):
+        """Catch-all: serve static files or fall back to index.html for SPA routing."""
+        file_path = FRONTEND_DIR / full_path
+        if full_path and file_path.is_file():
+            return FileResponse(str(file_path))
+        index_path = FRONTEND_DIR / "index.html"
+        if index_path.exists():
+            return FileResponse(str(index_path))
+        return {"detail": "Not Found"}, 404
+else:
+    logger.warning(f"Frontend build directory not found at {FRONTEND_DIR} — SPA will not be served.")

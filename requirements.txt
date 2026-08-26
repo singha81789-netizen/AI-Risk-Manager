@@ -13,6 +13,11 @@ sqlalchemy
 psycopg2-binary
 python-multipart
 
+# Authentication
+passlib[bcrypt]
+python-jose[cryptography]
+pyotp
+
 # RAG / Embeddings
 sentence-transformers
 

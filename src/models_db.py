@@ -176,3 +176,46 @@ class Alert(Base):
             f"<Alert(id={self.id}, transaction_id={self.transaction_id}, "
             f"risk_level={self.risk_level}, status={self.status})>"
         )
+
+
+class User(Base):
+    """Registered user account for authentication."""
+
+    __tablename__ = "users"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    email = Column(String(256), unique=True, nullable=False, index=True)
+    name = Column(String(128), nullable=False)
+    hashed_password = Column(String(256), nullable=False)
+    role = Column(String(16), nullable=False, default="Analyst")  # Admin / Analyst / Viewer
+    is_verified = Column(Integer, nullable=False, default=0)
+    is_active = Column(Integer, nullable=False, default=1)
+    created_at = Column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        nullable=False,
+    )
+
+    def __repr__(self) -> str:
+        return f"<User(id={self.id}, email={self.email}, role={self.role})>"
+
+
+class OTPVerification(Base):
+    """Time-limited one-time password for email verification."""
+
+    __tablename__ = "otp_verifications"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    email = Column(String(256), nullable=False, index=True)
+    code_hash = Column(String(256), nullable=False)
+    purpose = Column(String(32), nullable=False)  # register / login
+    expires_at = Column(DateTime(timezone=True), nullable=False)
+    used = Column(Integer, nullable=False, default=0)
+    created_at = Column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        nullable=False,
+    )
+
+    def __repr__(self) -> str:
+        return f"<OTPVerification(id={self.id}, email={self.email}, purpose={self.purpose})>"

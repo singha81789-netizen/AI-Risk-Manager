@@ -1,0 +1,24 @@
+services:
+  - type: web
+    name: ai-risk-manager
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    envVars:
+      - key: POSTGRES_USER
+        sync: false
+      - key: POSTGRES_PASSWORD
+        sync: false
+      - key: POSTGRES_HOST
+        sync: false
+      - key: POSTGRES_PORT
+        value: "5432"
+      - key: POSTGRES_DB
+        value: "ai_risk_manager"
+      - key: JWT_SECRET_KEY
+        generateValue: true
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASSWORD
+        sync: false
+      - key: PYTHON_VERSION
+        value: "3.11"

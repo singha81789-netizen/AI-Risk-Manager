@@ -34,17 +34,35 @@ from src.utils import logger
 
 try:
     from jose import JWTError, jwt
-except ImportError:
-    import jwt as _jwt  # type: ignore
+except Exception:
+    try:
+        import jwt as _jwt  # type: ignore
 
-    class JWTError(Exception):  # type: ignore
-        pass
+        class JWTError(Exception):  # type: ignore
+            pass
 
-    jwt = _jwt  # type: ignore
+        jwt = _jwt  # type: ignore
+    except ImportError:
+        import hashlib as _hashlib  # type: ignore
+
+        class JWTError(Exception):  # type: ignore
+            pass
+
+        class _FakeJWT:
+            @staticmethod
+            def encode(payload, key, algorithm="HS256"):
+                import json, hmac
+                return hmac.new(key.encode(), json.dumps(payload).encode(), _hashlib.sha256).hexdigest()
+
+            @staticmethod
+            def decode(token, key, algorithms=None):
+                raise JWTError("JWT library not available — install python-jose or PyJWT")
+
+        jwt = _FakeJWT()  # type: ignore
 
 try:
     from passlib.context import CryptContext
-except ImportError:
+except Exception:
     CryptContext = None  # type: ignore
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])

@@ -19,6 +19,7 @@ export default defineConfig({
       '/reports': { target: 'http://localhost:8000', changeOrigin: true },
       '/thresholds': { target: 'http://localhost:8000', changeOrigin: true },
       '/ai-models': { target: 'http://localhost:8000', changeOrigin: true },
+      '/auth': { target: 'http://localhost:8000', changeOrigin: true },
     },
   },
 })

@@ -1,0 +1,4 @@
+# Optional heavy ML dependencies — install separately if needed
+sentence-transformers
+chromadb
+shap

@@ -15,7 +15,7 @@ from pathlib import Path
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 
 from api.routes import _load_models, router
 from api.routes_upload import router as upload_router
@@ -54,8 +54,11 @@ async def lifespan(app: FastAPI):
         logger.warning(f"Database initialisation failed — predictions will not be persisted: {exc}")
 
     logger.info("Loading trained model artifacts …")
-    _load_models()
-    logger.info("AI Risk Manager API is ready.")
+    try:
+        _load_models()
+        logger.info("AI Risk Manager API is ready.")
+    except Exception as exc:
+        logger.warning(f"Model loading failed — predictions will not work until models are trained: {exc}")
 
     # Auto-generate alerts for existing high/medium risk transactions missing alerts
     try:
@@ -153,6 +156,13 @@ app.include_router(alerts_router)
 app.include_router(reports_router)
 app.include_router(ai_models_router)
 app.include_router(auth_router)
+
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    """Catch-all: return 500 JSON instead of crashing the process."""
+    logger.error(f"Unhandled exception on {request.method} {request.url}: {exc}", exc_info=True)
+    return JSONResponse(status_code=500, content={"detail": "Internal server error"})
 
 
 # ---------------------------------------------------------------------------

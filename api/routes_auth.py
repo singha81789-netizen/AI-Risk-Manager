@@ -43,7 +43,8 @@ except Exception:
 
         jwt = _jwt  # type: ignore
     except ImportError:
-        import hashlib as _hashlib  # type: ignore
+        import hmac as _hmac
+        import hashlib as _hashlib
 
         class JWTError(Exception):  # type: ignore
             pass
@@ -51,8 +52,10 @@ except Exception:
         class _FakeJWT:
             @staticmethod
             def encode(payload, key, algorithm="HS256"):
-                import json, hmac
-                return hmac.new(key.encode(), json.dumps(payload).encode(), _hashlib.sha256).hexdigest()
+                import json as _json
+                return _hmac.new(
+                    key.encode(), _json.dumps(payload).encode(), _hashlib.sha256
+                ).hexdigest()
 
             @staticmethod
             def decode(token, key, algorithms=None):

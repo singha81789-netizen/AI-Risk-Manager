@@ -35,30 +35,92 @@ from rag.chunking import (
     chunk_documents,
     estimate_tokens,
 )
-from rag.embeddings import (
-    EmbeddingConfig,
-    EmbeddingPipelineResult,
-    EmbeddedChunk,
-    build_embedding_index,
-    generate_embeddings,
-)
-from rag.vector_store import (
-    IndexResult,
-    SearchHit,
-    VectorStore,
-    VectorStoreConfig,
-)
-from rag.retriever import (
-    Retriever,
-    RetrieverConfig,
-    RetrievalResult,
-)
-from rag.rag_pipeline import (
-    Citation,
-    RAGPipeline,
-    RAGPipelineConfig,
-    RAGResponse,
-)
+
+# Lazy imports for heavy ML dependencies — only loaded when actually used
+_embedding_imports_loaded = False
+_vector_imports_loaded = False
+_retriever_imports_loaded = False
+_pipeline_imports_loaded = False
+
+
+def _load_embedding_imports():
+    global _embedding_imports_loaded
+    if not _embedding_imports_loaded:
+        global EmbeddingConfig, EmbeddingPipelineResult, EmbeddedChunk
+        global build_embedding_index, generate_embeddings
+        from rag.embeddings import (
+            EmbeddingConfig,
+            EmbeddingPipelineResult,
+            EmbeddedChunk,
+            build_embedding_index,
+            generate_embeddings,
+        )
+        _embedding_imports_loaded = True
+
+
+def _load_vector_imports():
+    global _vector_imports_loaded
+    if not _vector_imports_loaded:
+        global IndexResult, SearchHit, VectorStore, VectorStoreConfig
+        from rag.vector_store import (
+            IndexResult,
+            SearchHit,
+            VectorStore,
+            VectorStoreConfig,
+        )
+        _vector_imports_loaded = True
+
+
+def _load_retriever_imports():
+    global _retriever_imports_loaded
+    if not _retriever_imports_loaded:
+        global Retriever, RetrieverConfig, RetrievalResult
+        from rag.retriever import (
+            Retriever,
+            RetrieverConfig,
+            RetrievalResult,
+        )
+        _retriever_imports_loaded = True
+
+
+def _load_pipeline_imports():
+    global _pipeline_imports_loaded
+    if not _pipeline_imports_loaded:
+        global Citation, RAGPipeline, RAGPipelineConfig, RAGResponse
+        from rag.rag_pipeline import (
+            Citation,
+            RAGPipeline,
+            RAGPipelineConfig,
+            RAGResponse,
+        )
+        _pipeline_imports_loaded = True
+
+
+def __getattr__(name):
+    """Lazy-load heavy ML-dependent symbols on first access."""
+    _lazy_map = {
+        "EmbeddingConfig": _load_embedding_imports,
+        "EmbeddingPipelineResult": _load_embedding_imports,
+        "EmbeddedChunk": _load_embedding_imports,
+        "build_embedding_index": _load_embedding_imports,
+        "generate_embeddings": _load_embedding_imports,
+        "IndexResult": _load_vector_imports,
+        "SearchHit": _load_vector_imports,
+        "VectorStore": _load_vector_imports,
+        "VectorStoreConfig": _load_vector_imports,
+        "Retriever": _load_retriever_imports,
+        "RetrieverConfig": _load_retriever_imports,
+        "RetrievalResult": _load_retriever_imports,
+        "Citation": _load_pipeline_imports,
+        "RAGPipeline": _load_pipeline_imports,
+        "RAGPipelineConfig": _load_pipeline_imports,
+        "RAGResponse": _load_pipeline_imports,
+    }
+    if name in _lazy_map:
+        _lazy_map[name]()
+        return globals()[name]
+    raise AttributeError(f"module 'rag' has no attribute '{name}'")
+
 
 __all__ = [
     # Document loading
@@ -161,14 +223,14 @@ def chunk_kb_documents(
 
 def embed_chunks(
     chunks: list[DocumentChunk] | None = None,
-    config: EmbeddingConfig | None = None,
-) -> list[EmbeddedChunk]:
+    config: "EmbeddingConfig | None" = None,
+) -> list["EmbeddedChunk"]:
     """Chunk (optionally) and embed all knowledge base documents.
 
     Parameters
     ----------
     chunks:
-        Pre-chunked documents.  If ``None``, documents are loaded and
+        Pre-chunked chunks.  If ``None``, documents are loaded and
         chunked from the default knowledge base directory.
     config:
         Embedding configuration.
@@ -178,6 +240,7 @@ def embed_chunks(
     list[EmbeddedChunk]
         Chunks paired with their embedding vectors.
     """
+    _load_embedding_imports()
     if chunks is None:
         chunks = chunk_kb_documents()
     return generate_embeddings(chunks, config)
@@ -186,8 +249,8 @@ def embed_chunks(
 def build_index(
     kb_dir=None,
     chunk_config: ChunkConfig | None = None,
-    embedding_config: EmbeddingConfig | None = None,
-) -> EmbeddingPipelineResult:
+    embedding_config: "EmbeddingConfig | None" = None,
+) -> "EmbeddingPipelineResult":
     """End-to-end pipeline: load documents -> chunk -> embed.
 
     This is the primary entry point for building the knowledge base
@@ -207,4 +270,5 @@ def build_index(
     EmbeddingPipelineResult
         Embedded chunks with metadata, ready for vector-store indexing.
     """
+    _load_embedding_imports()
     return build_embedding_index(kb_dir, chunk_config, embedding_config)

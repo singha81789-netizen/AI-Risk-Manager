@@ -19,14 +19,5 @@ python-jose[cryptography]
 pyotp
 email-validator
 
-# RAG / Embeddings
-sentence-transformers
-
-# Vector store
-chromadb
-
-# Model explainability
-shap
-
 # PDF report generation
 reportlab

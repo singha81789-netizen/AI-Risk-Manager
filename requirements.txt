@@ -17,6 +17,7 @@ python-multipart
 passlib[bcrypt]
 python-jose[cryptography]
 pyotp
+email-validator
 
 # RAG / Embeddings
 sentence-transformers

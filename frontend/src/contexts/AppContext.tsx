@@ -31,6 +31,8 @@ interface AppContextValue {
   notifications: Notification[]
   thresholds: Thresholds
   riskDistribution: { LOW: number; MEDIUM: number; HIGH: number }
+  tourSeen: boolean
+  sidebarCollapsed: boolean
 
   login: (email: string, password: string, role: User['role']) => void
   logout: () => void
@@ -52,6 +54,8 @@ interface AppContextValue {
   revokeApiKey: (keyId: string) => void
   addNotification: (n: Notification) => void
   markNotificationRead: (id: string) => void
+  markTourSeen: () => void
+  setSidebarCollapsed: (collapsed: boolean) => void
 }
 
 const AppContext = createContext<AppContextValue | undefined>(undefined)
@@ -82,6 +86,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [scheduledReports, setScheduledReports] = useState<ScheduledReport[]>(mockScheduledReports)
   const [notifications, setNotifications] = useState<Notification[]>(mockNotifications)
   const [thresholds, setThresholds] = useState<Thresholds>({ low: 40, medium: 70, high: 85 })
+  const [tourSeen, setTourSeen] = useState(() => localStorage.getItem('riskguard-tour-seen') === 'true')
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => localStorage.getItem('riskguard-sidebar-collapsed') === 'true')
 
   const riskDistribution = useMemo(() => ({
     LOW: transactions.filter(t => t.riskLevel === 'LOW').length,
@@ -201,13 +207,25 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setNotifications(prev => prev.map(n => n.id === id ? { ...n, read: true } : n))
   }, [])
 
+  const markTourSeen = useCallback(() => {
+    setTourSeen(true)
+    localStorage.setItem('riskguard-tour-seen', 'true')
+  }, [])
+
+  const handleSidebarCollapsed = useCallback((collapsed: boolean) => {
+    setSidebarCollapsed(collapsed)
+    localStorage.setItem('riskguard-sidebar-collapsed', String(collapsed))
+  }, [])
+
   const value: AppContextValue = {
     user, transactions, alerts, models, reports, auditLog, cases, team,
     apiKeys, scheduledReports, notifications, thresholds, riskDistribution,
+    tourSeen, sidebarCollapsed,
     login, logout, addTransactions, updateAlertStatus, assignAlert, addAlertNote,
     updateModelStatus, retrainModel, addReport, updateThresholds, addAuditEntry,
     addCase, updateCase, addCaseNote, addTeamMember, removeTeamMember,
     generateApiKey, revokeApiKey, addNotification, markNotificationRead,
+    markTourSeen, setSidebarCollapsed: handleSidebarCollapsed,
   }
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>

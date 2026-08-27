@@ -1,13 +1,14 @@
 import { useState, useRef, useEffect } from 'react'
-import { Menu, Search, Sun, Moon, Bell, ChevronDown, LogOut } from 'lucide-react'
+import { Menu, Search, Sun, Moon, Bell, ChevronDown, LogOut, Info } from 'lucide-react'
 import { useTheme } from '../../contexts/ThemeContext'
 import { useApp } from '../../contexts/AppContext'
 
 interface TopNavbarProps {
   onMenuToggle: () => void
+  onTourClick?: () => void
 }
 
-export default function TopNavbar({ onMenuToggle }: TopNavbarProps) {
+export default function TopNavbar({ onMenuToggle, onTourClick }: TopNavbarProps) {
   const { theme, toggleTheme } = useTheme()
   const { user, notifications, markNotificationRead } = useApp()
   const isDark = theme === 'dark'
@@ -42,16 +43,16 @@ export default function TopNavbar({ onMenuToggle }: TopNavbarProps) {
       className={`fixed top-0 left-0 right-0 z-30 h-16 backdrop-blur-xl border-b flex items-center justify-between px-4 sm:px-6 transition-colors duration-200 ${
         isDark
           ? 'bg-[rgba(22,31,50,0.7)] border-[rgba(42,53,80,0.6)] text-white'
-          : 'bg-[rgba(255,255,255,0.8)] border-gray-200 text-gray-900'
+          : 'bg-[rgba(255,255,255,0.85)] border-gray-200 text-gray-900'
       }`}
     >
       <div className="flex items-center gap-3">
-        <button onClick={onMenuToggle} className={buttonBase}>
+        <button onClick={onMenuToggle} className={buttonBase} aria-label="Toggle sidebar">
           <Menu className="w-5 h-5" />
         </button>
 
         <div className="relative hidden sm:block">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+          <Search className={`absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 ${isDark ? 'text-gray-500' : 'text-gray-400'}`} />
           <input
             type="text"
             placeholder="Search transactions, alerts..."
@@ -65,7 +66,15 @@ export default function TopNavbar({ onMenuToggle }: TopNavbarProps) {
       </div>
 
       <div className="flex items-center gap-2 sm:gap-3">
-        <button onClick={toggleTheme} className={buttonBase}>
+        <button
+          onClick={onTourClick}
+          title="Take a tour"
+          className={`${buttonBase} hidden sm:flex`}
+        >
+          <Info className="w-5 h-5" />
+        </button>
+
+        <button onClick={toggleTheme} className={buttonBase} aria-label="Toggle theme">
           {isDark ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
         </button>
 
@@ -79,7 +88,7 @@ export default function TopNavbar({ onMenuToggle }: TopNavbarProps) {
           >
             <Bell className="w-5 h-5" />
             {unreadCount > 0 && (
-              <span className="absolute -top-0.5 -right-0.5 flex items-center justify-center w-4 h-4 rounded-full bg-red-500 text-[10px] font-bold text-white">
+              <span className="absolute -top-0.5 -right-0.5 flex items-center justify-center min-w-[16px] h-4 px-1 rounded-full bg-red-500 text-[10px] font-bold text-white">
                 {unreadCount}
               </span>
             )}
@@ -99,15 +108,13 @@ export default function TopNavbar({ onMenuToggle }: TopNavbarProps) {
               <div className="max-h-80 overflow-y-auto">
                 {notifications.length === 0 ? (
                   <p className={`px-4 py-6 text-sm text-center ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>
-                    No notifications
+                    No notifications yet
                   </p>
                 ) : (
                   notifications.slice(0, 6).map((n) => (
                     <button
                       key={n.id}
-                      onClick={() => {
-                        markNotificationRead(n.id)
-                      }}
+                      onClick={() => markNotificationRead(n.id)}
                       className={`w-full text-left px-4 py-3 border-b transition-all duration-200 ${
                         isDark ? 'border-white/5' : 'border-gray-50'
                       } ${!n.read ? (isDark ? 'bg-[#4F6DF5]/5' : 'bg-[#4F6DF5]/5') : ''}`}

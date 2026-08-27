@@ -1,24 +1,37 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
-import { Shield, Eye, EyeOff, Zap, Lock, Brain, BarChart3, Loader2, ArrowLeft, Mail } from 'lucide-react'
+import {
+  Shield, Eye, EyeOff, Zap, Lock, Brain, BarChart3, Loader2,
+  ArrowLeft, Mail, AlertCircle
+} from 'lucide-react'
 import { useApp } from '../contexts/AppContext'
+import { useTheme } from '../contexts/ThemeContext'
 import { authLogin, authLoginVerify } from '../services/api'
 import type { UserRole } from '../types'
 
-type Step = 'email' | 'otp'
+type Step = 'credentials' | 'otp'
+
+interface FieldError {
+  email?: string
+  password?: string
+}
 
 export default function Login() {
   const navigate = useNavigate()
   const { login } = useApp()
+  const { theme } = useTheme()
+  const isDark = theme === 'dark'
 
-  const [step, setStep] = useState<Step>('email')
+  const [step, setStep] = useState<Step>('credentials')
   const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
   const [otp, setOtp] = useState(['', '', '', '', '', ''])
   const [role, setRole] = useState<UserRole>('Admin')
   const [showPassword, setShowPassword] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
+  const [fieldErrors, setFieldErrors] = useState<FieldError>({})
   const otpRefs = useRef<(HTMLInputElement | null)[]>([])
 
   useEffect(() => {
@@ -27,9 +40,25 @@ export default function Login() {
     }
   }, [step])
 
+  const validateFields = useCallback((): boolean => {
+    const errors: FieldError = {}
+    if (!email.trim()) {
+      errors.email = 'Email is required'
+    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      errors.email = 'Enter a valid email address'
+    }
+    if (!password) {
+      errors.password = 'Password is required'
+    } else if (password.length < 6) {
+      errors.password = 'Password must be at least 6 characters'
+    }
+    setFieldErrors(errors)
+    return Object.keys(errors).length === 0
+  }, [email, password])
+
   const handleSendOtp = useCallback(async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!email.trim()) return
+    if (!validateFields()) return
     setLoading(true)
     setError('')
     try {
@@ -42,7 +71,7 @@ export default function Login() {
     } finally {
       setLoading(false)
     }
-  }, [email])
+  }, [email, validateFields])
 
   const handleOtpChange = useCallback((index: number, value: string) => {
     if (value.length > 1) value = value.slice(-1)
@@ -83,7 +112,7 @@ export default function Login() {
     try {
       const result = await authLoginVerify({ email, code })
       localStorage.setItem('riskguard-token', result.token)
-      login(result.user.email, '', result.user.role as UserRole)
+      login(result.user.email, password, result.user.role as UserRole)
       navigate('/dashboard')
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Verification failed'
@@ -93,7 +122,7 @@ export default function Login() {
     } finally {
       setLoading(false)
     }
-  }, [otp, email, login, navigate])
+  }, [otp, email, password, login, navigate])
 
   const handleDemo = () => {
     login('demo@riskguard.io', 'demo123', 'Admin')
@@ -101,11 +130,19 @@ export default function Login() {
   }
 
   const handleBack = () => {
-    setStep('email')
+    setStep('credentials')
     setError('')
     setSuccess('')
     setOtp(['', '', '', '', '', ''])
   }
+
+  const inputBase = `w-full px-4 py-2.5 rounded-xl text-sm outline-none transition-all duration-200 ${
+    isDark
+      ? 'bg-white/5 border text-white placeholder-gray-500 focus:bg-white/10'
+      : 'bg-gray-50 border text-gray-900 placeholder-gray-400 focus:bg-white'
+  }`
+
+  const labelBase = `block text-sm font-medium mb-1.5 ${isDark ? 'text-gray-300' : 'text-gray-600'}`
 
   return (
     <div className="min-h-screen flex">
@@ -154,7 +191,9 @@ export default function Login() {
       </div>
 
       {/* Right form panel */}
-      <div className="flex-1 flex items-center justify-center p-6 sm:p-8 bg-[#0F172A]">
+      <div className={`flex-1 flex items-center justify-center p-6 sm:p-8 transition-colors duration-200 ${
+        isDark ? 'bg-[#0F172A]' : 'bg-gray-50'
+      }`}>
         <div className="w-full max-w-md">
           <div className="lg:hidden flex items-center gap-3 mb-8">
             <div className="flex items-center justify-center w-10 h-10 rounded-xl bg-gradient-to-br from-[#4F6DF5] to-[#7C5CFC]">
@@ -165,78 +204,116 @@ export default function Login() {
             </span>
           </div>
 
-          <h2 className="text-2xl font-bold text-white mb-1">
-            {step === 'email' ? 'Welcome back' : 'Enter verification code'}
+          <h2 className={`text-2xl font-bold mb-1 ${isDark ? 'text-white' : 'text-gray-900'}`}>
+            {step === 'credentials' ? 'Welcome back' : 'Enter verification code'}
           </h2>
-          <p className="text-gray-400 text-sm mb-8">
-            {step === 'email'
+          <p className={`text-sm mb-8 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+            {step === 'credentials'
               ? 'Sign in to your account to continue'
               : `We sent a 6-digit code to ${email}`
             }
           </p>
 
           {error && (
-            <div className="mb-4 p-3 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-sm">
-              {error}
+            <div className="mb-4 p-3 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-sm flex items-start gap-2">
+              <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
+              <span>{error}</span>
             </div>
           )}
           {success && step === 'otp' && (
-            <div className="mb-4 p-3 rounded-xl bg-green-500/10 border border-green-500/20 text-green-400 text-sm">
+            <div className="mb-4 p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-sm">
               {success}
             </div>
           )}
 
-          {step === 'email' ? (
+          {step === 'credentials' ? (
             <form onSubmit={handleSendOtp} className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-300 mb-1.5">Email</label>
-                <input
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="you@company.com"
-                  className="w-full px-4 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white placeholder-gray-500 text-sm outline-none focus:border-[#4F6DF5]/50 focus:bg-white/10 transition-all duration-200"
-                  required
-                />
+                <label className={labelBase}>Email</label>
+                <div className="relative">
+                  <Mail className={`absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 ${isDark ? 'text-gray-500' : 'text-gray-400'}`} />
+                  <input
+                    type="email"
+                    value={email}
+                    onChange={(e) => { setEmail(e.target.value); setFieldErrors(prev => ({ ...prev, email: undefined })) }}
+                    placeholder="you@company.com"
+                    className={`${inputBase} pl-10 ${fieldErrors.email ? 'border-red-500/50' : isDark ? 'border-white/10 focus:border-[#4F6DF5]/50' : 'border-gray-200 focus:border-[#4F6DF5]/50'}`}
+                  />
+                </div>
+                {fieldErrors.email && (
+                  <p className="mt-1.5 text-xs text-red-400 flex items-center gap-1">
+                    <AlertCircle className="w-3 h-3" /> {fieldErrors.email}
+                  </p>
+                )}
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-300 mb-1.5">Role</label>
+                <label className={labelBase}>Password</label>
+                <div className="relative">
+                  <Lock className={`absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 ${isDark ? 'text-gray-500' : 'text-gray-400'}`} />
+                  <input
+                    type={showPassword ? 'text' : 'password'}
+                    value={password}
+                    onChange={(e) => { setPassword(e.target.value); setFieldErrors(prev => ({ ...prev, password: undefined })) }}
+                    placeholder="Enter your password"
+                    className={`${inputBase} pl-10 pr-10 ${fieldErrors.password ? 'border-red-500/50' : isDark ? 'border-white/10 focus:border-[#4F6DF5]/50' : 'border-gray-200 focus:border-[#4F6DF5]/50'}`}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className={`absolute right-3 top-1/2 -translate-y-1/2 transition-colors duration-200 ${isDark ? 'text-gray-500 hover:text-gray-300' : 'text-gray-400 hover:text-gray-600'}`}
+                  >
+                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+                {fieldErrors.password && (
+                  <p className="mt-1.5 text-xs text-red-400 flex items-center gap-1">
+                    <AlertCircle className="w-3 h-3" /> {fieldErrors.password}
+                  </p>
+                )}
+              </div>
+
+              <div>
+                <label className={labelBase}>Role</label>
                 <select
                   value={role}
                   onChange={(e) => setRole(e.target.value as UserRole)}
-                  className="w-full px-4 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none focus:border-[#4F6DF5]/50 transition-all duration-200 appearance-none cursor-pointer"
+                  className={`${inputBase} appearance-none cursor-pointer ${isDark ? 'border-white/10 focus:border-[#4F6DF5]/50' : 'border-gray-200 focus:border-[#4F6DF5]/50'}`}
                 >
-                  <option value="Admin" className="bg-[#0F172A]">Admin</option>
-                  <option value="Analyst" className="bg-[#0F172A]">Analyst</option>
-                  <option value="Viewer" className="bg-[#0F172A]">Viewer</option>
+                  <option value="Admin" className={isDark ? 'bg-[#0F172A]' : 'bg-white'}>Admin</option>
+                  <option value="Analyst" className={isDark ? 'bg-[#0F172A]' : 'bg-white'}>Analyst</option>
+                  <option value="Viewer" className={isDark ? 'bg-[#0F172A]' : 'bg-white'}>Viewer</option>
                 </select>
               </div>
 
               <button
                 type="button"
                 onClick={handleDemo}
-                className="w-full py-2.5 rounded-xl border border-[#4F6DF5]/30 text-[#4F6DF5] font-medium text-sm hover:bg-[#4F6DF5]/10 transition-all duration-200"
+                className={`w-full py-2.5 rounded-xl border font-medium text-sm transition-all duration-200 ${
+                  isDark
+                    ? 'border-[#4F6DF5]/30 text-[#4F6DF5] hover:bg-[#4F6DF5]/10'
+                    : 'border-[#4F6DF5]/30 text-[#4F6DF5] hover:bg-[#4F6DF5]/5'
+                }`}
               >
                 Continue as Demo User
               </button>
 
               <button
                 type="submit"
-                disabled={loading || !email.trim()}
-                className="w-full py-2.5 rounded-xl bg-[#4F6DF5] text-white font-medium text-sm hover:shadow-[0_0_20px_rgba(79,109,245,0.3)] transition-all duration-200 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                disabled={loading}
+                className="w-full py-2.5 rounded-xl bg-gradient-to-r from-[#4F6DF5] to-[#7C3AED] text-white font-medium text-sm hover:shadow-[0_0_20px_rgba(79,109,245,0.3)] transition-all duration-200 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {loading ? (
                   <><Loader2 className="w-4 h-4 animate-spin" /> Sending code...</>
                 ) : (
-                  <><Mail className="w-4 h-4" /> Send Verification Code</>
+                  <><Mail className="w-4 h-4" /> Sign In</>
                 )}
               </button>
             </form>
           ) : (
             <form onSubmit={handleVerifyOtp} className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-300 mb-3">6-Digit Code</label>
+                <label className={`${labelBase} text-center`}>6-Digit Code</label>
                 <div className="flex gap-2 justify-center">
                   {otp.map((digit, i) => (
                     <input
@@ -249,7 +326,11 @@ export default function Login() {
                       onChange={(e) => handleOtpChange(i, e.target.value)}
                       onKeyDown={(e) => handleOtpKeyDown(i, e)}
                       onPaste={i === 0 ? handleOtpPaste : undefined}
-                      className="w-12 h-14 text-center text-xl font-bold rounded-xl bg-white/5 border border-white/10 text-white outline-none focus:border-[#4F6DF5]/50 focus:bg-white/10 transition-all duration-200"
+                      className={`w-12 h-14 text-center text-xl font-bold rounded-xl outline-none transition-all duration-200 ${
+                        isDark
+                          ? 'bg-white/5 border border-white/10 text-white focus:border-[#4F6DF5]/50 focus:bg-white/10'
+                          : 'bg-gray-50 border border-gray-200 text-gray-900 focus:border-[#4F6DF5]/50 focus:bg-white'
+                      }`}
                     />
                   ))}
                 </div>
@@ -259,14 +340,18 @@ export default function Login() {
                 <button
                   type="button"
                   onClick={handleBack}
-                  className="flex-1 py-2.5 rounded-xl border border-white/10 text-gray-300 font-medium text-sm hover:bg-white/5 transition-all duration-200 flex items-center justify-center gap-2"
+                  className={`flex-1 py-2.5 rounded-xl border font-medium text-sm transition-all duration-200 flex items-center justify-center gap-2 ${
+                    isDark
+                      ? 'border-white/10 text-gray-300 hover:bg-white/5'
+                      : 'border-gray-200 text-gray-600 hover:bg-gray-100'
+                  }`}
                 >
                   <ArrowLeft className="w-4 h-4" /> Back
                 </button>
                 <button
                   type="submit"
                   disabled={loading || otp.join('').length !== 6}
-                  className="flex-1 py-2.5 rounded-xl bg-[#4F6DF5] text-white font-medium text-sm hover:shadow-[0_0_20px_rgba(79,109,245,0.3)] transition-all duration-200 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="flex-1 py-2.5 rounded-xl bg-gradient-to-r from-[#4F6DF5] to-[#7C3AED] text-white font-medium text-sm hover:shadow-[0_0_20px_rgba(79,109,245,0.3)] transition-all duration-200 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {loading ? (
                     <><Loader2 className="w-4 h-4 animate-spin" /> Verifying...</>
@@ -280,14 +365,14 @@ export default function Login() {
                 type="button"
                 onClick={handleSendOtp}
                 disabled={loading}
-                className="w-full text-center text-sm text-gray-400 hover:text-[#4F6DF5] transition-colors"
+                className={`w-full text-center text-sm transition-colors ${isDark ? 'text-gray-400 hover:text-[#4F6DF5]' : 'text-gray-500 hover:text-[#4F6DF5]'}`}
               >
                 Resend code
               </button>
             </form>
           )}
 
-          <p className="mt-6 text-center text-sm text-gray-400">
+          <p className={`mt-6 text-center text-sm ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
             Don't have an account?{' '}
             <Link to="/register" className="text-[#4F6DF5] hover:underline font-medium">
               Sign up

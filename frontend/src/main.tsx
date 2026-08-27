@@ -3,6 +3,7 @@ import ReactDOM from 'react-dom/client'
 import { BrowserRouter } from 'react-router-dom'
 import { ThemeProvider } from './contexts/ThemeContext'
 import { AppProvider } from './contexts/AppContext'
+import { ToastProvider } from './components/Toast'
 import App from './App'
 import './styles/global.css'
 
@@ -11,7 +12,9 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
     <BrowserRouter>
       <ThemeProvider>
         <AppProvider>
-          <App />
+          <ToastProvider>
+            <App />
+          </ToastProvider>
         </AppProvider>
       </ThemeProvider>
     </BrowserRouter>

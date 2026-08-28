@@ -1,139 +1,92 @@
-import { useState, useRef, useEffect, useCallback } from 'react'
-import { useNavigate, Link } from 'react-router-dom'
+import { useState, useCallback, useEffect } from 'react'
+import { useNavigate, useLocation, Link } from 'react-router-dom'
 import {
-  Shield, Eye, EyeOff, Zap, Lock, Brain, BarChart3, Loader2,
-  ArrowLeft, Mail, AlertCircle
+  Shield, Zap, Brain, BarChart3, Loader2,
+  Mail, AlertCircle, Lock, Eye, EyeOff, CheckCircle2, ArrowRight
 } from 'lucide-react'
 import { useApp } from '../contexts/AppContext'
 import { useTheme } from '../contexts/ThemeContext'
-import { authLogin, authLoginVerify } from '../services/api'
+import { authLogin } from '../services/api'
 import type { UserRole } from '../types'
 
-type Step = 'credentials' | 'otp'
-
-interface FieldError {
+interface FieldErrors {
   email?: string
   password?: string
 }
 
 export default function Login() {
   const navigate = useNavigate()
+  const location = useLocation()
   const { login } = useApp()
   const { theme } = useTheme()
   const isDark = theme === 'dark'
 
-  const [step, setStep] = useState<Step>('credentials')
-  const [email, setEmail] = useState('')
+  const locationState = location.state as { successMessage?: string; email?: string } | null
+  const initialEmail = locationState?.email || ''
+  const initialSuccess = locationState?.successMessage || ''
+
+  const [email, setEmail] = useState(initialEmail)
   const [password, setPassword] = useState('')
-  const [otp, setOtp] = useState(['', '', '', '', '', ''])
-  const [role, setRole] = useState<UserRole>('Admin')
   const [showPassword, setShowPassword] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
-  const [success, setSuccess] = useState('')
-  const [fieldErrors, setFieldErrors] = useState<FieldError>({})
-  const otpRefs = useRef<(HTMLInputElement | null)[]>([])
+  const [errorType, setErrorType] = useState<'notFound' | 'unverified' | 'general' | null>(null)
+  const [success, setSuccess] = useState(initialSuccess)
+  const [fieldErrors, setFieldErrors] = useState<FieldErrors>({})
 
   useEffect(() => {
-    if (step === 'otp') {
-      otpRefs.current[0]?.focus()
+    if (initialSuccess) {
+      setSuccess(initialSuccess)
     }
-  }, [step])
+  }, [initialSuccess])
 
   const validateFields = useCallback((): boolean => {
-    const errors: FieldError = {}
+    const errors: FieldErrors = {}
     if (!email.trim()) {
       errors.email = 'Email is required'
-    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
       errors.email = 'Enter a valid email address'
     }
     if (!password) {
       errors.password = 'Password is required'
-    } else if (password.length < 6) {
-      errors.password = 'Password must be at least 6 characters'
     }
     setFieldErrors(errors)
     return Object.keys(errors).length === 0
   }, [email, password])
 
-  const handleSendOtp = useCallback(async (e: React.FormEvent) => {
+  const handleLogin = useCallback(async (e: React.FormEvent) => {
     e.preventDefault()
     if (!validateFields()) return
     setLoading(true)
     setError('')
+    setErrorType(null)
+    setSuccess('')
+
+    const cleanEmail = email.trim().toLowerCase()
+
     try {
-      await authLogin({ email })
-      setSuccess('Verification code sent! Check your email (or terminal for dev mode).')
-      setStep('otp')
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Failed to send OTP'
-      setError(msg)
-    } finally {
-      setLoading(false)
-    }
-  }, [email, validateFields])
-
-  const handleOtpChange = useCallback((index: number, value: string) => {
-    if (value.length > 1) value = value.slice(-1)
-    if (!/^\d*$/.test(value)) return
-    const newOtp = [...otp]
-    newOtp[index] = value
-    setOtp(newOtp)
-    if (value && index < 5) {
-      otpRefs.current[index + 1]?.focus()
-    }
-  }, [otp])
-
-  const handleOtpKeyDown = useCallback((index: number, e: React.KeyboardEvent) => {
-    if (e.key === 'Backspace' && !otp[index] && index > 0) {
-      otpRefs.current[index - 1]?.focus()
-    }
-  }, [otp])
-
-  const handleOtpPaste = useCallback((e: React.ClipboardEvent) => {
-    e.preventDefault()
-    const pasted = e.clipboardData.getData('text').replace(/\D/g, '').slice(0, 6)
-    if (pasted) {
-      const newOtp = pasted.split('').concat(Array(6).fill('')).slice(0, 6)
-      setOtp(newOtp)
-      otpRefs.current[Math.min(pasted.length, 5)]?.focus()
-    }
-  }, [])
-
-  const handleVerifyOtp = useCallback(async (e: React.FormEvent) => {
-    e.preventDefault()
-    const code = otp.join('')
-    if (code.length !== 6) {
-      setError('Please enter the full 6-digit code')
-      return
-    }
-    setLoading(true)
-    setError('')
-    try {
-      const result = await authLoginVerify({ email, code })
+      const result = await authLogin({ email: cleanEmail, password })
       localStorage.setItem('riskguard-token', result.token)
-      login(result.user.email, password, result.user.role as UserRole)
+      login(result.user.email, '', result.user.role as UserRole)
       navigate('/dashboard')
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Verification failed'
+      const msg = err instanceof Error ? err.message : 'Login failed'
       setError(msg)
-      setOtp(['', '', '', '', '', ''])
-      otpRefs.current[0]?.focus()
+      if (msg.toLowerCase().includes('account not found') || msg.toLowerCase().includes('not found')) {
+        setErrorType('notFound')
+      } else if (msg.toLowerCase().includes('verify your email') || msg.toLowerCase().includes('not verified')) {
+        setErrorType('unverified')
+      } else {
+        setErrorType('general')
+      }
     } finally {
       setLoading(false)
     }
-  }, [otp, email, password, login, navigate])
+  }, [email, password, validateFields, login, navigate])
 
   const handleDemo = () => {
-    login('demo@riskguard.io', 'demo123', 'Admin')
+    login('demo@riskguard.io', '', 'Admin')
     navigate('/dashboard')
-  }
-
-  const handleBack = () => {
-    setStep('credentials')
-    setError('')
-    setSuccess('')
-    setOtp(['', '', '', '', '', ''])
   }
 
   const inputBase = `w-full px-4 py-2.5 rounded-xl text-sm outline-none transition-all duration-200 ${
@@ -151,7 +104,7 @@ export default function Login() {
         <div className="absolute inset-0 bg-gradient-to-br from-[#4F6DF5]/10 via-transparent to-[#7C5CFC]/10" />
         <div className="relative z-10">
           <div className="flex items-center gap-3 mb-4">
-            <div className="flex items-center justify-center w-12 h-12 rounded-2xl bg-gradient-to-br from-[#4F6DF5] to-[#7C5CFC]">
+            <div className="flex items-center justify-center w-12 h-12 rounded-2xl bg-gradient-to-br from-[#4F6DF5] to-[#7C5CFC] shadow-lg shadow-[#4F6DF5]/20">
               <Shield className="w-7 h-7 text-white" />
             </div>
             <span className="text-2xl font-bold bg-gradient-to-r from-[#4F6DF5] to-[#7C5CFC] bg-clip-text text-transparent">
@@ -205,176 +158,141 @@ export default function Login() {
           </div>
 
           <h2 className={`text-2xl font-bold mb-1 ${isDark ? 'text-white' : 'text-gray-900'}`}>
-            {step === 'credentials' ? 'Welcome back' : 'Enter verification code'}
+            Welcome back
           </h2>
           <p className={`text-sm mb-8 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
-            {step === 'credentials'
-              ? 'Sign in to your account to continue'
-              : `We sent a 6-digit code to ${email}`
-            }
+            Sign in to access your risk management dashboard
           </p>
 
+          {success && (
+            <div className="mb-4 p-3.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-sm flex items-start gap-2.5">
+              <CheckCircle2 className="w-4 h-4 mt-0.5 shrink-0 text-emerald-500" />
+              <span>{success}</span>
+            </div>
+          )}
+
           {error && (
-            <div className="mb-4 p-3 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-sm flex items-start gap-2">
-              <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
-              <span>{error}</span>
-            </div>
-          )}
-          {success && step === 'otp' && (
-            <div className="mb-4 p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-sm">
-              {success}
-            </div>
-          )}
-
-          {step === 'credentials' ? (
-            <form onSubmit={handleSendOtp} className="space-y-4">
-              <div>
-                <label className={labelBase}>Email</label>
-                <div className="relative">
-                  <Mail className={`absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 ${isDark ? 'text-gray-500' : 'text-gray-400'}`} />
-                  <input
-                    type="email"
-                    value={email}
-                    onChange={(e) => { setEmail(e.target.value); setFieldErrors(prev => ({ ...prev, email: undefined })) }}
-                    placeholder="you@company.com"
-                    className={`${inputBase} pl-10 ${fieldErrors.email ? 'border-red-500/50' : isDark ? 'border-white/10 focus:border-[#4F6DF5]/50' : 'border-gray-200 focus:border-[#4F6DF5]/50'}`}
-                  />
-                </div>
-                {fieldErrors.email && (
-                  <p className="mt-1.5 text-xs text-red-400 flex items-center gap-1">
-                    <AlertCircle className="w-3 h-3" /> {fieldErrors.email}
-                  </p>
-                )}
+            <div className="mb-4 p-3.5 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-sm">
+              <div className="flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
+                <span className="flex-1">{error}</span>
               </div>
-
-              <div>
-                <label className={labelBase}>Password</label>
-                <div className="relative">
-                  <Lock className={`absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 ${isDark ? 'text-gray-500' : 'text-gray-400'}`} />
-                  <input
-                    type={showPassword ? 'text' : 'password'}
-                    value={password}
-                    onChange={(e) => { setPassword(e.target.value); setFieldErrors(prev => ({ ...prev, password: undefined })) }}
-                    placeholder="Enter your password"
-                    className={`${inputBase} pl-10 pr-10 ${fieldErrors.password ? 'border-red-500/50' : isDark ? 'border-white/10 focus:border-[#4F6DF5]/50' : 'border-gray-200 focus:border-[#4F6DF5]/50'}`}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword(!showPassword)}
-                    className={`absolute right-3 top-1/2 -translate-y-1/2 transition-colors duration-200 ${isDark ? 'text-gray-500 hover:text-gray-300' : 'text-gray-400 hover:text-gray-600'}`}
+              {errorType === 'notFound' && (
+                <div className="mt-3 pt-2.5 border-t border-red-500/20 flex justify-end">
+                  <Link
+                    to="/register"
+                    className="inline-flex items-center gap-1 text-xs font-semibold text-white bg-red-500/20 hover:bg-red-500/30 px-3 py-1.5 rounded-lg transition-colors"
                   >
-                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                  </button>
+                    Create an account <ArrowRight className="w-3 h-3" />
+                  </Link>
                 </div>
-                {fieldErrors.password && (
-                  <p className="mt-1.5 text-xs text-red-400 flex items-center gap-1">
-                    <AlertCircle className="w-3 h-3" /> {fieldErrors.password}
-                  </p>
-                )}
-              </div>
-
-              <div>
-                <label className={labelBase}>Role</label>
-                <select
-                  value={role}
-                  onChange={(e) => setRole(e.target.value as UserRole)}
-                  className={`${inputBase} appearance-none cursor-pointer ${isDark ? 'border-white/10 focus:border-[#4F6DF5]/50' : 'border-gray-200 focus:border-[#4F6DF5]/50'}`}
-                >
-                  <option value="Admin" className={isDark ? 'bg-[#0F172A]' : 'bg-white'}>Admin</option>
-                  <option value="Analyst" className={isDark ? 'bg-[#0F172A]' : 'bg-white'}>Analyst</option>
-                  <option value="Viewer" className={isDark ? 'bg-[#0F172A]' : 'bg-white'}>Viewer</option>
-                </select>
-              </div>
-
-              <button
-                type="button"
-                onClick={handleDemo}
-                className={`w-full py-2.5 rounded-xl border font-medium text-sm transition-all duration-200 ${
-                  isDark
-                    ? 'border-[#4F6DF5]/30 text-[#4F6DF5] hover:bg-[#4F6DF5]/10'
-                    : 'border-[#4F6DF5]/30 text-[#4F6DF5] hover:bg-[#4F6DF5]/5'
-                }`}
-              >
-                Continue as Demo User
-              </button>
-
-              <button
-                type="submit"
-                disabled={loading}
-                className="w-full py-2.5 rounded-xl bg-gradient-to-r from-[#4F6DF5] to-[#7C3AED] text-white font-medium text-sm hover:shadow-[0_0_20px_rgba(79,109,245,0.3)] transition-all duration-200 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {loading ? (
-                  <><Loader2 className="w-4 h-4 animate-spin" /> Sending code...</>
-                ) : (
-                  <><Mail className="w-4 h-4" /> Sign In</>
-                )}
-              </button>
-            </form>
-          ) : (
-            <form onSubmit={handleVerifyOtp} className="space-y-4">
-              <div>
-                <label className={`${labelBase} text-center`}>6-Digit Code</label>
-                <div className="flex gap-2 justify-center">
-                  {otp.map((digit, i) => (
-                    <input
-                      key={i}
-                      ref={(el) => { otpRefs.current[i] = el }}
-                      type="text"
-                      inputMode="numeric"
-                      maxLength={1}
-                      value={digit}
-                      onChange={(e) => handleOtpChange(i, e.target.value)}
-                      onKeyDown={(e) => handleOtpKeyDown(i, e)}
-                      onPaste={i === 0 ? handleOtpPaste : undefined}
-                      className={`w-12 h-14 text-center text-xl font-bold rounded-xl outline-none transition-all duration-200 ${
-                        isDark
-                          ? 'bg-white/5 border border-white/10 text-white focus:border-[#4F6DF5]/50 focus:bg-white/10'
-                          : 'bg-gray-50 border border-gray-200 text-gray-900 focus:border-[#4F6DF5]/50 focus:bg-white'
-                      }`}
-                    />
-                  ))}
+              )}
+              {errorType === 'unverified' && (
+                <div className="mt-3 pt-2.5 border-t border-red-500/20 flex justify-end">
+                  <Link
+                    to={`/verify-email?email=${encodeURIComponent(email.trim())}`}
+                    state={{ email: email.trim() }}
+                    className="inline-flex items-center gap-1 text-xs font-semibold text-white bg-[#4F6DF5] hover:bg-[#3B50C4] px-3 py-1.5 rounded-lg transition-colors"
+                  >
+                    Verify Email Now <ArrowRight className="w-3 h-3" />
+                  </Link>
                 </div>
-              </div>
+              )}
+            </div>
+          )}
 
-              <div className="flex gap-3">
+          <form onSubmit={handleLogin} className="space-y-4">
+            <div>
+              <label className={labelBase}>Email</label>
+              <div className="relative">
+                <Mail className={`absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 ${isDark ? 'text-gray-500' : 'text-gray-400'}`} />
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(e) => {
+                    setEmail(e.target.value)
+                    setFieldErrors((prev) => ({ ...prev, email: undefined }))
+                  }}
+                  placeholder="you@company.com"
+                  className={`${inputBase} pl-10 ${
+                    fieldErrors.email
+                      ? 'border-red-500/50'
+                      : isDark
+                      ? 'border-white/10 focus:border-[#4F6DF5]/50'
+                      : 'border-gray-200 focus:border-[#4F6DF5]/50'
+                  }`}
+                />
+              </div>
+              {fieldErrors.email && (
+                <p className="mt-1.5 text-xs text-red-400 flex items-center gap-1">
+                  <AlertCircle className="w-3 h-3" /> {fieldErrors.email}
+                </p>
+              )}
+            </div>
+
+            <div>
+              <label className={labelBase}>Password</label>
+              <div className="relative">
+                <Lock className={`absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 ${isDark ? 'text-gray-500' : 'text-gray-400'}`} />
+                <input
+                  type={showPassword ? 'text' : 'password'}
+                  value={password}
+                  onChange={(e) => {
+                    setPassword(e.target.value)
+                    setFieldErrors((prev) => ({ ...prev, password: undefined }))
+                  }}
+                  placeholder="Enter your password"
+                  className={`${inputBase} pl-10 pr-10 ${
+                    fieldErrors.password
+                      ? 'border-red-500/50'
+                      : isDark
+                      ? 'border-white/10 focus:border-[#4F6DF5]/50'
+                      : 'border-gray-200 focus:border-[#4F6DF5]/50'
+                  }`}
+                />
                 <button
                   type="button"
-                  onClick={handleBack}
-                  className={`flex-1 py-2.5 rounded-xl border font-medium text-sm transition-all duration-200 flex items-center justify-center gap-2 ${
-                    isDark
-                      ? 'border-white/10 text-gray-300 hover:bg-white/5'
-                      : 'border-gray-200 text-gray-600 hover:bg-gray-100'
-                  }`}
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-300 transition-colors"
                 >
-                  <ArrowLeft className="w-4 h-4" /> Back
-                </button>
-                <button
-                  type="submit"
-                  disabled={loading || otp.join('').length !== 6}
-                  className="flex-1 py-2.5 rounded-xl bg-gradient-to-r from-[#4F6DF5] to-[#7C3AED] text-white font-medium text-sm hover:shadow-[0_0_20px_rgba(79,109,245,0.3)] transition-all duration-200 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {loading ? (
-                    <><Loader2 className="w-4 h-4 animate-spin" /> Verifying...</>
-                  ) : (
-                    'Verify & Sign In'
-                  )}
+                  {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                 </button>
               </div>
+              {fieldErrors.password && (
+                <p className="mt-1.5 text-xs text-red-400 flex items-center gap-1">
+                  <AlertCircle className="w-3 h-3" /> {fieldErrors.password}
+                </p>
+              )}
+            </div>
 
-              <button
-                type="button"
-                onClick={handleSendOtp}
-                disabled={loading}
-                className={`w-full text-center text-sm transition-colors ${isDark ? 'text-gray-400 hover:text-[#4F6DF5]' : 'text-gray-500 hover:text-[#4F6DF5]'}`}
-              >
-                Resend code
-              </button>
-            </form>
-          )}
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full py-2.5 rounded-xl bg-gradient-to-r from-[#4F6DF5] to-[#7C3AED] text-white font-semibold text-sm hover:shadow-[0_0_20px_rgba(79,109,245,0.3)] transition-all duration-200 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed shadow-md"
+            >
+              {loading ? (
+                <><Loader2 className="w-4 h-4 animate-spin" /> Signing in...</>
+              ) : (
+                'Sign In'
+              )}
+            </button>
+
+            <button
+              type="button"
+              onClick={handleDemo}
+              className={`w-full py-2.5 rounded-xl border font-medium text-sm transition-all duration-200 ${
+                isDark
+                  ? 'border-[#4F6DF5]/30 text-[#4F6DF5] hover:bg-[#4F6DF5]/10'
+                  : 'border-[#4F6DF5]/30 text-[#4F6DF5] hover:bg-[#4F6DF5]/5'
+              }`}
+            >
+              Continue as Demo User
+            </button>
+          </form>
 
           <p className={`mt-6 text-center text-sm ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
             Don't have an account?{' '}
-            <Link to="/register" className="text-[#4F6DF5] hover:underline font-medium">
+            <Link to="/register" className="text-[#4F6DF5] hover:underline font-semibold">
               Sign up
             </Link>
           </p>
@@ -383,3 +301,4 @@ export default function Login() {
     </div>
   )
 }
+

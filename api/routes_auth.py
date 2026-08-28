@@ -1,10 +1,12 @@
 """
 Authentication endpoints for AI Risk Manager.
 
-Provides email + OTP based authentication with JWT token issuance.
+Provides password-based login, user registration, real Gmail SMTP OTP verification,
+and JWT token issuance.
 """
 
 import hashlib
+import os
 import smtplib
 import secrets
 from datetime import datetime, timedelta, timezone
@@ -12,6 +14,7 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from typing import Any, Optional
 
+from dotenv import load_dotenv
 from fastapi import APIRouter, Depends, HTTPException, Header
 from pydantic import BaseModel, EmailStr
 from sqlalchemy import and_
@@ -88,7 +91,10 @@ def hash_password(password: str) -> str:
 
 def verify_password(plain: str, hashed: str) -> bool:
     if pwd_context:
-        return pwd_context.verify(plain, hashed)
+        try:
+            return pwd_context.verify(plain, hashed)
+        except Exception:
+            pass
     return hashlib.sha256(plain.encode()).hexdigest() == hashed
 
 
@@ -110,11 +116,10 @@ def _create_otp_record(db_session, email: str, purpose: str) -> str:
     code_hash = _hash_otp(code)
     expires_at = datetime.now(timezone.utc) + timedelta(minutes=OTP_EXPIRY_MINUTES)
 
-    # Invalidate any previous unused OTPs for this email + purpose
+    # Invalidate any previous unused OTPs for this email
     old = db_session.query(OTPVerification).filter(
         and_(
             OTPVerification.email == email,
-            OTPVerification.purpose == purpose,
             OTPVerification.used == 0,
         )
     ).all()
@@ -132,91 +137,99 @@ def _create_otp_record(db_session, email: str, purpose: str) -> str:
     return code
 
 
-def _verify_otp(db_session, email: str, code: str, purpose: str) -> bool:
-    """Check OTP: exists, not expired, not used, hash matches."""
-    record = (
-        db_session.query(OTPVerification)
-        .filter(
-            and_(
-                OTPVerification.email == email,
-                OTPVerification.purpose == purpose,
-                OTPVerification.used == 0,
-            )
-        )
-        .order_by(OTPVerification.created_at.desc())
-        .first()
-    )
-    if not record:
-        return False
-    if record.expires_at.replace(tzinfo=timezone.utc) < datetime.now(timezone.utc):
-        return False
-    if not verify_password(code, record.code_hash) and record.code_hash != _hash_otp(code):
-        return False
-    record.used = 1
-    db_session.commit()
-    return True
-
-
 # ---------------------------------------------------------------------------
 # Email sending
 # ---------------------------------------------------------------------------
 
 def _send_otp_email(to_email: str, code: str, purpose: str) -> bool:
-    """Send OTP email via SMTP. Returns True on success, False on failure."""
-    if not SMTP_USER or not SMTP_PASSWORD:
-        logger.warning(
-            f"SMTP not configured — OTP for {to_email} is: {code} "
-            f"(purpose: {purpose})"
+    """Send OTP verification email via SMTP. Raises HTTPException on failure."""
+    load_dotenv(override=True)
+
+    smtp_host = os.getenv("SMTP_HOST", SMTP_HOST)
+    smtp_port = int(os.getenv("SMTP_PORT", str(SMTP_PORT)))
+    smtp_user = os.getenv("SMTP_USER", SMTP_USER).strip()
+    smtp_password = os.getenv("SMTP_PASSWORD", os.getenv("SMTP_PASS", SMTP_PASSWORD)).strip()
+    smtp_from_name = os.getenv("SMTP_FROM_NAME", os.getenv("SMTP_FROM", SMTP_FROM_NAME))
+    otp_expiry = int(os.getenv("OTP_EXPIRY_MINUTES", str(OTP_EXPIRY_MINUTES)))
+
+    logger.info(f"Sending OTP for {to_email} ({purpose}) via {smtp_host}:{smtp_port}")
+
+    if not smtp_user or not smtp_password:
+        print(f"\n{'='*60}")
+        print(f"  [SMTP NOT CONFIGURED] Cannot send email to {to_email}")
+        print(f"  Please set SMTP_USER and SMTP_PASSWORD in .env for real Gmail delivery.")
+        print(f"  Development backup OTP: {code}")
+        print(f"{'='*60}\n")
+        raise HTTPException(
+            status_code=500,
+            detail="Email service is not configured. Please set SMTP_USER and SMTP_PASSWORD in .env file.",
         )
-        print(f"\n{'='*50}")
-        print(f"  OTP for {to_email} ({purpose}): {code}")
-        print(f"  (SMTP not configured — set SMTP_USER and SMTP_PASSWORD)")
-        print(f"{'='*50}\n")
-        return True
 
     try:
-        subject = "Your RiskGuard Verification Code"
+        subject = "Your RiskGuard Email Verification Code"
+        body_text = (
+            f"Your RiskGuard verification code is:\n\n"
+            f"{code}\n\n"
+            f"This code will expire in {otp_expiry} minutes.\n\n"
+            f"If you did not request this code, you can safely ignore this email."
+        )
+
         body_html = f"""
-        <div style="font-family: 'Segoe UI', Arial, sans-serif; max-width: 480px; margin: 0 auto; padding: 32px; background: #0F172A; border-radius: 16px;">
+        <div style="font-family: 'Segoe UI', Arial, sans-serif; max-width: 480px; margin: 0 auto; padding: 32px; background: #0F172A; border-radius: 16px; color: #F8FAFC;">
             <div style="text-align: center; margin-bottom: 24px;">
-                <h1 style="color: #F8FAFC; font-size: 22px; margin: 0;">RiskGuard</h1>
+                <h1 style="color: #6366F1; font-size: 24px; margin: 0; font-weight: 700; letter-spacing: -0.5px;">RiskGuard</h1>
                 <p style="color: #94A3B8; font-size: 13px; margin: 4px 0 0;">AI Risk & Fraud Detection</p>
             </div>
-            <div style="background: #1E293B; border-radius: 12px; padding: 24px; text-align: center; margin-bottom: 20px;">
-                <p style="color: #94A3B8; font-size: 14px; margin: 0 0 12px;">
+            <div style="background: #1E293B; border-radius: 12px; padding: 28px; text-align: center; margin-bottom: 20px; border: 1px solid #334155;">
+                <p style="color: #94A3B8; font-size: 14px; margin: 0 0 16px;">
                     Your verification code for <strong style="color: #F8FAFC;">{purpose}</strong>:
                 </p>
-                <p style="color: #4F6DF5; font-size: 36px; font-weight: 700; letter-spacing: 8px; margin: 0; font-family: monospace;">
-                    {code}
-                </p>
-                <p style="color: #64748B; font-size: 12px; margin: 12px 0 0;">
-                    Expires in {OTP_EXPIRY_MINUTES} minutes
+                <div style="background: #0F172A; border-radius: 8px; padding: 16px; margin: 0 auto 16px; border: 1px dashed #4F46E5;">
+                    <p style="color: #818CF8; font-size: 36px; font-weight: 700; letter-spacing: 10px; margin: 0; font-family: 'Consolas', 'Courier New', monospace;">
+                        {code}
+                    </p>
+                </div>
+                <p style="color: #64748B; font-size: 12px; margin: 0;">
+                    Code expires in {otp_expiry} minutes
                 </p>
             </div>
-            <p style="color: #64748B; font-size: 12px; text-align: center; margin: 0;">
-                If you didn't request this code, please ignore this email.
+            <p style="color: #64748B; font-size: 12px; text-align: center; margin: 0; line-height: 1.5;">
+                If you did not request this code, you can safely ignore this email.
             </p>
         </div>
         """
 
         msg = MIMEMultipart("alternative")
         msg["Subject"] = subject
-        msg["From"] = f"{SMTP_FROM_NAME} <{SMTP_USER}>"
+        msg["From"] = f"{smtp_from_name} <{smtp_user}>"
         msg["To"] = to_email
+        msg.attach(MIMEText(body_text, "plain"))
         msg.attach(MIMEText(body_html, "html"))
 
-        with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=10) as server:
-            server.starttls()
-            server.login(SMTP_USER, SMTP_PASSWORD)
-            server.sendmail(SMTP_USER, to_email, msg.as_string())
+        if smtp_port == 465:
+            with smtplib.SMTP_SSL(smtp_host, smtp_port, timeout=15) as server:
+                server.login(smtp_user, smtp_password)
+                server.sendmail(smtp_user, to_email, msg.as_string())
+        else:
+            with smtplib.SMTP(smtp_host, smtp_port, timeout=15) as server:
+                server.starttls()
+                server.login(smtp_user, smtp_password)
+                server.sendmail(smtp_user, to_email, msg.as_string())
 
-        logger.info(f"OTP email sent to {to_email}")
+        logger.info(f"Verification OTP email delivered to {to_email}")
         return True
+    except smtplib.SMTPAuthenticationError as auth_err:
+        logger.error(f"Gmail SMTP Authentication failed for {smtp_user}: {auth_err}")
+        raise HTTPException(
+            status_code=500,
+            detail="Gmail SMTP authentication failed. Please check your 16-character Google App Password in .env.",
+        )
     except Exception as exc:
         logger.error(f"Failed to send OTP email to {to_email}: {exc}")
-        print(f"\n  [EMAIL FAILED] OTP for {to_email} ({purpose}): {code}")
-        print(f"  Error: {exc}\n")
-        return True  # Still allow the flow to continue so user sees the code
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to deliver verification email to {to_email}: {str(exc)}",
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -261,9 +274,9 @@ def get_current_user(authorization: Optional[str] = Header(None)) -> dict:
 # ---------------------------------------------------------------------------
 
 class RegisterRequest(BaseModel):
+    name: str
     email: EmailStr
     password: str
-    name: str
     role: str = "Analyst"
 
 class VerifyOtpRequest(BaseModel):
@@ -272,10 +285,10 @@ class VerifyOtpRequest(BaseModel):
 
 class LoginRequest(BaseModel):
     email: EmailStr
+    password: str
 
-class LoginVerifyRequest(BaseModel):
+class ResendOtpRequest(BaseModel):
     email: EmailStr
-    code: str
 
 
 # ---------------------------------------------------------------------------
@@ -283,91 +296,178 @@ class LoginVerifyRequest(BaseModel):
 # ---------------------------------------------------------------------------
 
 @router.post("/register", summary="Register a new user and send OTP")
+@router.post("/signup", summary="Register a new user and send OTP (alias)")
 def register(body: RegisterRequest) -> dict:
+    email = body.email.strip().lower()
+    if len(body.password) < 6:
+        raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
+
+    role = body.role if body.role in ["Admin", "Analyst", "Viewer"] else "Analyst"
+
     with get_db_session() as session:
-        existing = session.query(User).filter(User.email == body.email).first()
+        existing = session.query(User).filter(User.email == email).first()
         if existing:
-            raise HTTPException(status_code=400, detail="Email already registered")
+            if existing.is_verified:
+                raise HTTPException(status_code=400, detail="Email already registered. Please sign in.")
+            existing.name = body.name.strip()
+            existing.hashed_password = hash_password(body.password)
+            existing.role = role
+            session.commit()
+            session.refresh(existing)
+            user_id = existing.id
+        else:
+            user = User(
+                email=email,
+                name=body.name.strip(),
+                hashed_password=hash_password(body.password),
+                role=role,
+                is_verified=0,
+            )
+            session.add(user)
+            session.commit()
+            session.refresh(user)
+            user_id = user.id
 
-        if len(body.password) < 6:
-            raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
+        code = _create_otp_record(session, email, "register")
+        _send_otp_email(email, code, "registration")
 
-        user = User(
-            email=body.email,
-            name=body.name,
-            hashed_password=hash_password(body.password),
-            role=body.role,
-            is_verified=0,
-        )
-        session.add(user)
-        session.commit()
-        session.refresh(user)
-
-        code = _create_otp_record(session, body.email, "register")
-        _send_otp_email(body.email, code, "registration")
-
-        logger.info(f"User registered: {body.email} (id={user.id}), OTP sent")
-        return {"message": "Account created. Please check your email for the verification code.", "user_id": user.id}
+        logger.info(f"User registered/updated: {email} (id={user_id}), OTP sent")
+        return {
+            "message": "Account created. Please check your email for the verification code.",
+            "email": email,
+            "user_id": user_id,
+        }
 
 
-@router.post("/verify-otp", summary="Verify OTP for new registration")
+@router.post("/verify-otp", summary="Verify OTP for registration")
+@router.post("/verify-email", summary="Verify OTP for registration (alias)")
 def verify_otp_register(body: VerifyOtpRequest) -> dict:
-    with get_db_session() as session:
-        if not _verify_otp(session, body.email, body.code, "register"):
-            raise HTTPException(status_code=400, detail="Invalid or expired verification code")
+    email = body.email.strip().lower()
+    code = body.code.strip()
 
-        user = session.query(User).filter(User.email == body.email).first()
+    with get_db_session() as session:
+        record = (
+            session.query(OTPVerification)
+            .filter(
+                and_(
+                    OTPVerification.email == email,
+                    OTPVerification.used == 0,
+                )
+            )
+            .order_by(OTPVerification.created_at.desc())
+            .first()
+        )
+        if not record:
+            raise HTTPException(status_code=400, detail="Invalid verification code")
+
+        # Check expiration
+        expires_at = record.expires_at
+        if expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=timezone.utc)
+        if expires_at < datetime.now(timezone.utc):
+            raise HTTPException(
+                status_code=400,
+                detail="Verification code expired. Please request a new code.",
+            )
+
+        # Check code matching
+        if not verify_password(code, record.code_hash) and record.code_hash != _hash_otp(code):
+            raise HTTPException(status_code=400, detail="Invalid verification code")
+
+        record.used = 1
+
+        user = session.query(User).filter(User.email == email).first()
         if not user:
             raise HTTPException(status_code=404, detail="User not found")
 
         user.is_verified = 1
         session.commit()
 
-        token = create_access_token(user.id, user.email, user.role)
-        logger.info(f"User verified: {body.email}")
+        logger.info(f"User email verified: {email}")
         return {
-            "message": "Account verified successfully",
-            "token": token,
-            "user": {"id": f"USR-{user.id}", "email": user.email, "name": user.name, "role": user.role},
+            "message": "Email verified successfully.",
+            "email": user.email,
         }
 
 
-@router.post("/login", summary="Send OTP to registered email for login")
-def login(body: LoginRequest) -> dict:
+@router.post("/resend-otp", summary="Resend verification OTP to email")
+@router.post("/send-otp", summary="Send verification OTP to email (alias)")
+def resend_otp(body: ResendOtpRequest) -> dict:
+    email = body.email.strip().lower()
     with get_db_session() as session:
-        user = session.query(User).filter(User.email == body.email).first()
+        user = session.query(User).filter(User.email == email).first()
         if not user:
-            raise HTTPException(status_code=404, detail="No account found with this email")
+            raise HTTPException(status_code=404, detail="Account not found. Please sign up first.")
+
+        if user.is_verified:
+            raise HTTPException(status_code=400, detail="Email is already verified. Please sign in.")
+
+        # Rate limit check: 60 seconds cooldown
+        recent = (
+            session.query(OTPVerification)
+            .filter(OTPVerification.email == email)
+            .order_by(OTPVerification.created_at.desc())
+            .first()
+        )
+        if recent:
+            created_at = recent.created_at
+            if created_at.tzinfo is None:
+                created_at = created_at.replace(tzinfo=timezone.utc)
+            elapsed = (datetime.now(timezone.utc) - created_at).total_seconds()
+            if elapsed < 60:
+                seconds_left = max(1, int(60 - elapsed))
+                raise HTTPException(
+                    status_code=429,
+                    detail=f"Please wait {seconds_left} seconds before requesting another code.",
+                )
+
+        code = _create_otp_record(session, email, "register")
+        _send_otp_email(email, code, "verification")
+
+        logger.info(f"Resent OTP to {email}")
+        return {
+            "message": "Verification code resent successfully.",
+            "email": email,
+        }
+
+
+@router.post("/login", summary="Sign in with email and password")
+def login(body: LoginRequest) -> dict:
+    email = body.email.strip().lower()
+    with get_db_session() as session:
+        user = session.query(User).filter(User.email == email).first()
+        if not user:
+            raise HTTPException(status_code=404, detail="Account not found. Please sign up first.")
 
         if not user.is_verified:
-            raise HTTPException(status_code=403, detail="Email not verified. Please check your inbox.")
+            # Trigger OTP resend for unverified user
+            try:
+                code = _create_otp_record(session, email, "register")
+                _send_otp_email(email, code, "verification")
+            except Exception:
+                pass
+            raise HTTPException(
+                status_code=403,
+                detail="Please verify your email first. We have sent a verification code to your email.",
+            )
 
         if not user.is_active:
-            raise HTTPException(status_code=403, detail="Account is deactivated")
+            raise HTTPException(status_code=403, detail="Account is deactivated. Please contact support.")
 
-        code = _create_otp_record(session, body.email, "login")
-        _send_otp_email(body.email, code, "login")
-
-        logger.info(f"Login OTP sent to {body.email}")
-        return {"message": "Verification code sent to your email"}
-
-
-@router.post("/login/verify", summary="Verify OTP and complete login")
-def login_verify(body: LoginVerifyRequest) -> dict:
-    with get_db_session() as session:
-        if not _verify_otp(session, body.email, body.code, "login"):
-            raise HTTPException(status_code=400, detail="Invalid or expired verification code")
-
-        user = session.query(User).filter(User.email == body.email).first()
-        if not user:
-            raise HTTPException(status_code=404, detail="User not found")
+        if not verify_password(body.password, user.hashed_password):
+            raise HTTPException(status_code=401, detail="Invalid email or password.")
 
         token = create_access_token(user.id, user.email, user.role)
-        logger.info(f"User logged in: {body.email}")
+        logger.info(f"User logged in: {user.email}")
         return {
             "message": "Login successful",
             "token": token,
-            "user": {"id": f"USR-{user.id}", "email": user.email, "name": user.name, "role": user.role},
+            "user": {
+                "id": f"USR-{user.id}",
+                "email": user.email,
+                "name": user.name,
+                "role": user.role,
+            },
         }
 
 
@@ -378,3 +478,4 @@ def get_me(current_user: dict = Depends(get_current_user)) -> dict:
         if not user:
             raise HTTPException(status_code=404, detail="User not found")
         return {"id": f"USR-{user.id}", "email": user.email, "name": user.name, "role": user.role}
+

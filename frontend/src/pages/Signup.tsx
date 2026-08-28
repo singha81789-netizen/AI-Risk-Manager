@@ -1,17 +1,23 @@
-import { useState, useRef, useEffect, useCallback } from 'react'
+import { useState, useCallback } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
-import { Shield, Eye, EyeOff, CheckCircle, Loader2, ArrowLeft, Mail } from 'lucide-react'
-import { useApp } from '../contexts/AppContext'
-import { authRegister, authVerifyOtp } from '../services/api'
+import { Shield, Eye, EyeOff, CheckCircle, Loader2, Mail, AlertCircle, Lock, User as UserIcon } from 'lucide-react'
+import { useTheme } from '../contexts/ThemeContext'
+import { authRegister } from '../services/api'
 import type { UserRole } from '../types'
 
-type Step = 'form' | 'otp'
+interface FieldErrors {
+  name?: string
+  email?: string
+  password?: string
+  confirmPassword?: string
+  terms?: string
+}
 
 export default function Signup() {
   const navigate = useNavigate()
-  const { login } = useApp()
+  const { theme } = useTheme()
+  const isDark = theme === 'dark'
 
-  const [step, setStep] = useState<Step>('form')
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -20,17 +26,9 @@ export default function Signup() {
   const [showPassword, setShowPassword] = useState(false)
   const [showConfirm, setShowConfirm] = useState(false)
   const [agreed, setAgreed] = useState(false)
-  const [otp, setOtp] = useState(['', '', '', '', '', ''])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
-  const [success, setSuccess] = useState('')
-  const otpRefs = useRef<(HTMLInputElement | null)[]>([])
-
-  useEffect(() => {
-    if (step === 'otp') {
-      otpRefs.current[0]?.focus()
-    }
-  }, [step])
+  const [fieldErrors, setFieldErrors] = useState<FieldErrors>({})
 
   const passwordStrength = () => {
     let score = 0
@@ -45,80 +43,57 @@ export default function Signup() {
   const strengthColors = ['bg-red-500', 'bg-amber-500', 'bg-yellow-400', 'bg-emerald-500']
   const strengthLabels = ['Weak', 'Fair', 'Good', 'Strong']
 
+  const validateFields = useCallback((): boolean => {
+    const errors: FieldErrors = {}
+    if (!name.trim()) {
+      errors.name = 'Full name is required'
+    }
+    if (!email.trim()) {
+      errors.email = 'Email is required'
+    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
+      errors.email = 'Enter a valid email address'
+    }
+    if (!password) {
+      errors.password = 'Password is required'
+    } else if (password.length < 6) {
+      errors.password = 'Password must be at least 6 characters'
+    }
+    if (password !== confirmPassword) {
+      errors.confirmPassword = 'Passwords do not match'
+    }
+    if (!agreed) {
+      errors.terms = 'You must agree to the Terms and Privacy Policy'
+    }
+    setFieldErrors(errors)
+    return Object.keys(errors).length === 0
+  }, [name, email, password, confirmPassword, agreed])
+
   const handleRegister = useCallback(async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!agreed || password !== confirmPassword) return
+    if (!validateFields()) return
+
     setLoading(true)
     setError('')
+    const cleanEmail = email.trim().toLowerCase()
+
     try {
-      await authRegister({ name, email, password, role })
-      setSuccess('Account created! Check your email for the verification code.')
-      setStep('otp')
+      await authRegister({
+        name: name.trim(),
+        email: cleanEmail,
+        password,
+        role,
+      })
+      sessionStorage.setItem('riskguard-verify-email', cleanEmail)
+      navigate(`/verify-email?email=${encodeURIComponent(cleanEmail)}`, {
+        state: { email: cleanEmail },
+      })
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Registration failed'
       setError(msg)
     } finally {
       setLoading(false)
     }
-  }, [name, email, password, confirmPassword, role, agreed])
-
-  const handleOtpChange = useCallback((index: number, value: string) => {
-    if (value.length > 1) value = value.slice(-1)
-    if (!/^\d*$/.test(value)) return
-    const newOtp = [...otp]
-    newOtp[index] = value
-    setOtp(newOtp)
-    if (value && index < 5) {
-      otpRefs.current[index + 1]?.focus()
-    }
-  }, [otp])
-
-  const handleOtpKeyDown = useCallback((index: number, e: React.KeyboardEvent) => {
-    if (e.key === 'Backspace' && !otp[index] && index > 0) {
-      otpRefs.current[index - 1]?.focus()
-    }
-  }, [otp])
-
-  const handleOtpPaste = useCallback((e: React.ClipboardEvent) => {
-    e.preventDefault()
-    const pasted = e.clipboardData.getData('text').replace(/\D/g, '').slice(0, 6)
-    if (pasted) {
-      const newOtp = pasted.split('').concat(Array(6).fill('')).slice(0, 6)
-      setOtp(newOtp)
-      otpRefs.current[Math.min(pasted.length, 5)]?.focus()
-    }
-  }, [])
-
-  const handleVerifyOtp = useCallback(async (e: React.FormEvent) => {
-    e.preventDefault()
-    const code = otp.join('')
-    if (code.length !== 6) {
-      setError('Please enter the full 6-digit code')
-      return
-    }
-    setLoading(true)
-    setError('')
-    try {
-      const result = await authVerifyOtp({ email, code })
-      localStorage.setItem('riskguard-token', result.token)
-      login(result.user.email, '', result.user.role as UserRole)
-      navigate('/dashboard')
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Verification failed'
-      setError(msg)
-      setOtp(['', '', '', '', '', ''])
-      otpRefs.current[0]?.focus()
-    } finally {
-      setLoading(false)
-    }
-  }, [otp, email, login, navigate])
-
-  const handleBack = () => {
-    setStep('form')
-    setError('')
-    setSuccess('')
-    setOtp(['', '', '', '', '', ''])
-  }
+  }, [name, email, password, role, validateFields, navigate])
 
   const benefits = [
     'AI-powered fraud detection engine',
@@ -128,6 +103,14 @@ export default function Signup() {
     'Team collaboration & case management',
   ]
 
+  const inputBase = `w-full px-4 py-2.5 rounded-xl text-sm outline-none transition-all duration-200 ${
+    isDark
+      ? 'bg-white/5 border text-white placeholder-gray-500 focus:bg-white/10'
+      : 'bg-gray-50 border text-gray-900 placeholder-gray-400 focus:bg-white'
+  }`
+
+  const labelBase = `block text-sm font-medium mb-1.5 ${isDark ? 'text-gray-300' : 'text-gray-600'}`
+
   return (
     <div className="min-h-screen flex">
       {/* Left brand panel */}
@@ -135,7 +118,7 @@ export default function Signup() {
         <div className="absolute inset-0 bg-gradient-to-br from-[#4F6DF5]/10 via-transparent to-[#7C5CFC]/10" />
         <div className="relative z-10">
           <div className="flex items-center gap-3 mb-4">
-            <div className="flex items-center justify-center w-12 h-12 rounded-2xl bg-gradient-to-br from-[#4F6DF5] to-[#7C5CFC]">
+            <div className="flex items-center justify-center w-12 h-12 rounded-2xl bg-gradient-to-br from-[#4F6DF5] to-[#7C5CFC] shadow-lg shadow-[#4F6DF5]/20">
               <Shield className="w-7 h-7 text-white" />
             </div>
             <span className="text-2xl font-bold bg-gradient-to-r from-[#4F6DF5] to-[#7C5CFC] bg-clip-text text-transparent">
@@ -168,7 +151,9 @@ export default function Signup() {
       </div>
 
       {/* Right form panel */}
-      <div className="flex-1 flex items-center justify-center p-6 sm:p-8 bg-[#0F172A]">
+      <div className={`flex-1 flex items-center justify-center p-6 sm:p-8 transition-colors duration-200 ${
+        isDark ? 'bg-[#0F172A]' : 'bg-gray-50'
+      }`}>
         <div className="w-full max-w-md">
           <div className="lg:hidden flex items-center gap-3 mb-8">
             <div className="flex items-center justify-center w-10 h-10 rounded-xl bg-gradient-to-br from-[#4F6DF5] to-[#7C5CFC]">
@@ -179,203 +164,220 @@ export default function Signup() {
             </span>
           </div>
 
-          <h2 className="text-2xl font-bold text-white mb-1">
-            {step === 'form' ? 'Create your account' : 'Verify your email'}
+          <h2 className={`text-2xl font-bold mb-1 ${isDark ? 'text-white' : 'text-gray-900'}`}>
+            Create your account
           </h2>
-          <p className="text-gray-400 text-sm mb-8">
-            {step === 'form'
-              ? 'Get started with RiskGuard in minutes'
-              : `We sent a 6-digit code to ${email}`
-            }
+          <p className={`text-sm mb-8 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+            Get started with RiskGuard in minutes
           </p>
 
           {error && (
-            <div className="mb-4 p-3 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-sm">
-              {error}
-            </div>
-          )}
-          {success && step === 'otp' && (
-            <div className="mb-4 p-3 rounded-xl bg-green-500/10 border border-green-500/20 text-green-400 text-sm">
-              {success}
+            <div className="mb-4 p-3.5 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-sm flex items-start gap-2.5">
+              <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
+              <span>{error}</span>
             </div>
           )}
 
-          {step === 'form' ? (
-            <form onSubmit={handleRegister} className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-300 mb-1.5">Full Name</label>
+          <form onSubmit={handleRegister} className="space-y-4">
+            <div>
+              <label className={labelBase}>Full Name</label>
+              <div className="relative">
+                <UserIcon className={`absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 ${isDark ? 'text-gray-500' : 'text-gray-400'}`} />
                 <input
                   type="text"
                   value={name}
-                  onChange={(e) => setName(e.target.value)}
+                  onChange={(e) => {
+                    setName(e.target.value)
+                    setFieldErrors((prev) => ({ ...prev, name: undefined }))
+                  }}
                   placeholder="John Doe"
-                  className="w-full px-4 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white placeholder-gray-500 text-sm outline-none focus:border-[#4F6DF5]/50 focus:bg-white/10 transition-all duration-200"
-                  required
+                  className={`${inputBase} pl-10 ${
+                    fieldErrors.name
+                      ? 'border-red-500/50'
+                      : isDark
+                      ? 'border-white/10 focus:border-[#4F6DF5]/50'
+                      : 'border-gray-200 focus:border-[#4F6DF5]/50'
+                  }`}
                 />
               </div>
+              {fieldErrors.name && (
+                <p className="mt-1.5 text-xs text-red-400 flex items-center gap-1">
+                  <AlertCircle className="w-3 h-3" /> {fieldErrors.name}
+                </p>
+              )}
+            </div>
 
-              <div>
-                <label className="block text-sm font-medium text-gray-300 mb-1.5">Email</label>
+            <div>
+              <label className={labelBase}>Email</label>
+              <div className="relative">
+                <Mail className={`absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 ${isDark ? 'text-gray-500' : 'text-gray-400'}`} />
                 <input
                   type="email"
                   value={email}
-                  onChange={(e) => setEmail(e.target.value)}
+                  onChange={(e) => {
+                    setEmail(e.target.value)
+                    setFieldErrors((prev) => ({ ...prev, email: undefined }))
+                  }}
                   placeholder="you@company.com"
-                  className="w-full px-4 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white placeholder-gray-500 text-sm outline-none focus:border-[#4F6DF5]/50 focus:bg-white/10 transition-all duration-200"
-                  required
+                  className={`${inputBase} pl-10 ${
+                    fieldErrors.email
+                      ? 'border-red-500/50'
+                      : isDark
+                      ? 'border-white/10 focus:border-[#4F6DF5]/50'
+                      : 'border-gray-200 focus:border-[#4F6DF5]/50'
+                  }`}
                 />
               </div>
+              {fieldErrors.email && (
+                <p className="mt-1.5 text-xs text-red-400 flex items-center gap-1">
+                  <AlertCircle className="w-3 h-3" /> {fieldErrors.email}
+                </p>
+              )}
+            </div>
 
-              <div>
-                <label className="block text-sm font-medium text-gray-300 mb-1.5">Password</label>
-                <div className="relative">
-                  <input
-                    type={showPassword ? 'text' : 'password'}
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    placeholder="Create a strong password"
-                    className="w-full px-4 py-2.5 pr-10 rounded-xl bg-white/5 border border-white/10 text-white placeholder-gray-500 text-sm outline-none focus:border-[#4F6DF5]/50 focus:bg-white/10 transition-all duration-200"
-                    required
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-300 transition-colors duration-200"
-                  >
-                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                  </button>
-                </div>
-                {password.length > 0 && (
-                  <div className="mt-2">
-                    <div className="flex gap-1">
-                      {[0, 1, 2, 3].map((i) => (
-                        <div
-                          key={i}
-                          className={`h-1 flex-1 rounded-full transition-all duration-200 ${
-                            i < strength ? strengthColors[strength - 1] : 'bg-white/10'
-                          }`}
-                        />
-                      ))}
-                    </div>
-                    <p className={`text-xs mt-1 ${strength > 0 ? 'text-gray-400' : 'text-gray-600'}`}>
-                      {strength > 0 ? strengthLabels[strength - 1] : 'Enter a password'}
-                    </p>
-                  </div>
-                )}
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-300 mb-1.5">Confirm Password</label>
-                <div className="relative">
-                  <input
-                    type={showConfirm ? 'text' : 'password'}
-                    value={confirmPassword}
-                    onChange={(e) => setConfirmPassword(e.target.value)}
-                    placeholder="Confirm your password"
-                    className="w-full px-4 py-2.5 pr-10 rounded-xl bg-white/5 border border-white/10 text-white placeholder-gray-500 text-sm outline-none focus:border-[#4F6DF5]/50 focus:bg-white/10 transition-all duration-200"
-                    required
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowConfirm(!showConfirm)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-300 transition-colors duration-200"
-                  >
-                    {showConfirm ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                  </button>
-                </div>
-                {confirmPassword.length > 0 && confirmPassword !== password && (
-                  <p className="text-xs mt-1 text-red-400">Passwords do not match</p>
-                )}
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-300 mb-1.5">Role</label>
-                <select
-                  value={role}
-                  onChange={(e) => setRole(e.target.value as UserRole)}
-                  className="w-full px-4 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none focus:border-[#4F6DF5]/50 transition-all duration-200 appearance-none cursor-pointer"
+            <div>
+              <label className={labelBase}>Password</label>
+              <div className="relative">
+                <Lock className={`absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 ${isDark ? 'text-gray-500' : 'text-gray-400'}`} />
+                <input
+                  type={showPassword ? 'text' : 'password'}
+                  value={password}
+                  onChange={(e) => {
+                    setPassword(e.target.value)
+                    setFieldErrors((prev) => ({ ...prev, password: undefined }))
+                  }}
+                  placeholder="Create a strong password (min 6 chars)"
+                  className={`${inputBase} pl-10 pr-10 ${
+                    fieldErrors.password
+                      ? 'border-red-500/50'
+                      : isDark
+                      ? 'border-white/10 focus:border-[#4F6DF5]/50'
+                      : 'border-gray-200 focus:border-[#4F6DF5]/50'
+                  }`}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-300 transition-colors"
                 >
-                  <option value="Admin" className="bg-[#0F172A]">Admin</option>
-                  <option value="Analyst" className="bg-[#0F172A]">Analyst</option>
-                  <option value="Viewer" className="bg-[#0F172A]">Viewer</option>
-                </select>
+                  {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
               </div>
+              {password.length > 0 && (
+                <div className="mt-2">
+                  <div className="flex gap-1">
+                    {[0, 1, 2, 3].map((i) => (
+                      <div
+                        key={i}
+                        className={`h-1 flex-1 rounded-full transition-all duration-200 ${
+                          i < strength ? strengthColors[strength - 1] : isDark ? 'bg-white/10' : 'bg-gray-200'
+                        }`}
+                      />
+                    ))}
+                  </div>
+                  <p className={`text-xs mt-1 ${strength > 0 ? (isDark ? 'text-gray-400' : 'text-gray-600') : 'text-gray-400'}`}>
+                    {strength > 0 ? strengthLabels[strength - 1] : 'Enter a password'}
+                  </p>
+                </div>
+              )}
+              {fieldErrors.password && (
+                <p className="mt-1.5 text-xs text-red-400 flex items-center gap-1">
+                  <AlertCircle className="w-3 h-3" /> {fieldErrors.password}
+                </p>
+              )}
+            </div>
 
+            <div>
+              <label className={labelBase}>Confirm Password</label>
+              <div className="relative">
+                <Lock className={`absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 ${isDark ? 'text-gray-500' : 'text-gray-400'}`} />
+                <input
+                  type={showConfirm ? 'text' : 'password'}
+                  value={confirmPassword}
+                  onChange={(e) => {
+                    setConfirmPassword(e.target.value)
+                    setFieldErrors((prev) => ({ ...prev, confirmPassword: undefined }))
+                  }}
+                  placeholder="Confirm your password"
+                  className={`${inputBase} pl-10 pr-10 ${
+                    fieldErrors.confirmPassword
+                      ? 'border-red-500/50'
+                      : isDark
+                      ? 'border-white/10 focus:border-[#4F6DF5]/50'
+                      : 'border-gray-200 focus:border-[#4F6DF5]/50'
+                  }`}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowConfirm(!showConfirm)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-300 transition-colors"
+                >
+                  {showConfirm ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+              </div>
+              {fieldErrors.confirmPassword && (
+                <p className="mt-1.5 text-xs text-red-400 flex items-center gap-1">
+                  <AlertCircle className="w-3 h-3" /> {fieldErrors.confirmPassword}
+                </p>
+              )}
+            </div>
+
+            <div>
+              <label className={labelBase}>Role</label>
+              <select
+                value={role}
+                onChange={(e) => setRole(e.target.value as UserRole)}
+                className={`${inputBase} appearance-none cursor-pointer ${
+                  isDark ? 'border-white/10 focus:border-[#4F6DF5]/50' : 'border-gray-200 focus:border-[#4F6DF5]/50'
+                }`}
+              >
+                <option value="Admin" className={isDark ? 'bg-[#0F172A]' : 'bg-white'}>Admin</option>
+                <option value="Analyst" className={isDark ? 'bg-[#0F172A]' : 'bg-white'}>Analyst</option>
+                <option value="Viewer" className={isDark ? 'bg-[#0F172A]' : 'bg-white'}>Viewer</option>
+              </select>
+            </div>
+
+            <div>
               <label className="flex items-start gap-3 cursor-pointer">
                 <input
                   type="checkbox"
                   checked={agreed}
-                  onChange={(e) => setAgreed(e.target.checked)}
-                  className="mt-0.5 w-4 h-4 rounded border-white/20 bg-white/5 text-[#4F6DF5] focus:ring-[#4F6DF5]/50"
+                  onChange={(e) => {
+                    setAgreed(e.target.checked)
+                    setFieldErrors((prev) => ({ ...prev, terms: undefined }))
+                  }}
+                  className="mt-0.5 w-4 h-4 rounded border-white/20 bg-white/5 text-[#4F6DF5] focus:ring-[#4F6DF5]/50 cursor-pointer"
                 />
-                <span className="text-xs text-gray-400 leading-relaxed">
+                <span className={`text-xs leading-relaxed ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
                   I agree to the{' '}
-                  <span className="text-[#4F6DF5] hover:underline">Terms of Service</span>{' '}
+                  <span className="text-[#4F6DF5] hover:underline font-medium">Terms of Service</span>{' '}
                   and{' '}
-                  <span className="text-[#4F6DF5] hover:underline">Privacy Policy</span>
+                  <span className="text-[#4F6DF5] hover:underline font-medium">Privacy Policy</span>
                 </span>
               </label>
+              {fieldErrors.terms && (
+                <p className="mt-1 text-xs text-red-400 flex items-center gap-1">
+                  <AlertCircle className="w-3 h-3" /> {fieldErrors.terms}
+                </p>
+              )}
+            </div>
 
-              <button
-                type="submit"
-                disabled={!agreed || loading || password !== confirmPassword || password.length < 6}
-                className="w-full py-2.5 rounded-xl bg-[#4F6DF5] text-white font-medium text-sm hover:shadow-[0_0_20px_rgba(79,109,245,0.3)] transition-all duration-200 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {loading ? (
-                  <><Loader2 className="w-4 h-4 animate-spin" /> Creating account...</>
-                ) : (
-                  <><Mail className="w-4 h-4" /> Create Account & Send Code</>
-                )}
-              </button>
-            </form>
-          ) : (
-            <form onSubmit={handleVerifyOtp} className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-300 mb-3">6-Digit Verification Code</label>
-                <div className="flex gap-2 justify-center">
-                  {otp.map((digit, i) => (
-                    <input
-                      key={i}
-                      ref={(el) => { otpRefs.current[i] = el }}
-                      type="text"
-                      inputMode="numeric"
-                      maxLength={1}
-                      value={digit}
-                      onChange={(e) => handleOtpChange(i, e.target.value)}
-                      onKeyDown={(e) => handleOtpKeyDown(i, e)}
-                      onPaste={i === 0 ? handleOtpPaste : undefined}
-                      className="w-12 h-14 text-center text-xl font-bold rounded-xl bg-white/5 border border-white/10 text-white outline-none focus:border-[#4F6DF5]/50 focus:bg-white/10 transition-all duration-200"
-                    />
-                  ))}
-                </div>
-              </div>
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full py-2.5 rounded-xl bg-gradient-to-r from-[#4F6DF5] to-[#7C3AED] text-white font-semibold text-sm hover:shadow-[0_0_20px_rgba(79,109,245,0.3)] transition-all duration-200 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed shadow-md"
+            >
+              {loading ? (
+                <><Loader2 className="w-4 h-4 animate-spin" /> Creating account & sending code...</>
+              ) : (
+                <><Mail className="w-4 h-4" /> Create Account & Send Code</>
+              )}
+            </button>
+          </form>
 
-              <div className="flex gap-3">
-                <button
-                  type="button"
-                  onClick={handleBack}
-                  className="flex-1 py-2.5 rounded-xl border border-white/10 text-gray-300 font-medium text-sm hover:bg-white/5 transition-all duration-200 flex items-center justify-center gap-2"
-                >
-                  <ArrowLeft className="w-4 h-4" /> Back
-                </button>
-                <button
-                  type="submit"
-                  disabled={loading || otp.join('').length !== 6}
-                  className="flex-1 py-2.5 rounded-xl bg-[#4F6DF5] text-white font-medium text-sm hover:shadow-[0_0_20px_rgba(79,109,245,0.3)] transition-all duration-200 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {loading ? (
-                    <><Loader2 className="w-4 h-4 animate-spin" /> Verifying...</>
-                  ) : (
-                    'Verify & Complete'
-                  )}
-                </button>
-              </div>
-            </form>
-          )}
-
-          <p className="mt-6 text-center text-sm text-gray-400">
+          <p className={`mt-6 text-center text-sm ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
             Already have an account?{' '}
-            <Link to="/login" className="text-[#4F6DF5] hover:underline font-medium">
+            <Link to="/login" className="text-[#4F6DF5] hover:underline font-semibold">
               Sign in
             </Link>
           </p>
@@ -384,3 +386,4 @@ export default function Signup() {
     </div>
   )
 }
+

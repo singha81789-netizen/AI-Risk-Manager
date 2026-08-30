@@ -1,0 +1,20 @@
+INFO:     Started server process [28692]
+INFO:     Waiting for application startup.
+[2026-08-30 17:28:03] [INFO] [ai_risk_manager]: Initialising database engine …
+[2026-08-30 17:28:07] [INFO] [ai_risk_manager]: Database tables created / verified.
+[2026-08-30 17:28:07] [INFO] [ai_risk_manager]: Loading trained model artifacts …
+[2026-08-30 17:28:07] [INFO] [ai_risk_manager]: Loading inference model from C:\Users\ARYAN\OneDrive\Desktop\AI-Risk-Manager\models\risk_model.pkl...
+[2026-08-30 17:28:07] [INFO] [ai_risk_manager]: Loaded artifact from C:\Users\ARYAN\OneDrive\Desktop\AI-Risk-Manager\models\risk_model.pkl
+[2026-08-30 17:28:07] [INFO] [ai_risk_manager]: Loaded artifact from C:\Users\ARYAN\OneDrive\Desktop\AI-Risk-Manager\models\preprocessor.joblib
+[2026-08-30 17:28:07] [INFO] [ai_risk_manager]: FraudPredictor initialized successfully.
+[2026-08-30 17:28:07] [INFO] [ai_risk_manager]: Loading anomaly detector from C:\Users\ARYAN\OneDrive\Desktop\AI-Risk-Manager\models\anomaly_detector.joblib
+[2026-08-30 17:28:07] [INFO] [ai_risk_manager]: Loaded artifact from C:\Users\ARYAN\OneDrive\Desktop\AI-Risk-Manager\models\anomaly_detector.joblib
+[2026-08-30 17:28:07] [INFO] [ai_risk_manager]: Loaded artifact from C:\Users\ARYAN\OneDrive\Desktop\AI-Risk-Manager\models\risk_model.pkl
+[2026-08-30 17:28:07] [INFO] [ai_risk_manager]: Loaded artifact from C:\Users\ARYAN\OneDrive\Desktop\AI-Risk-Manager\models\preprocessor.joblib
+[2026-08-30 17:28:11] [INFO] [ai_risk_manager]: AI Risk Manager API is ready.
+[2026-08-30 17:28:11] [INFO] [ai_risk_manager]: Knowledge base validated: 4 document(s) loaded.
+INFO:     Application startup complete.
+ERROR:    [Errno 10048] error while attempting to bind on address ('127.0.0.1', 8000): [winerror 10048] only one usage of each socket address (protocol/network address/port) is normally permitted
+INFO:     Waiting for application shutdown.
+[2026-08-30 17:28:11] [INFO] [ai_risk_manager]: Shutting down AI Risk Manager API.
+INFO:     Application shutdown complete.

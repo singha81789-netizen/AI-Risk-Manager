@@ -316,8 +316,15 @@ async def upload_csv(
         )
 
     # Fill missing optional columns with defaults
-    defaults = {
-        "transaction_id": [f"BATCH_{i:06d}" for i in range(len(df))],
+    # transaction_id needs per-row defaults, handle separately
+    if "transaction_id" not in df.columns:
+        df["transaction_id"] = [f"BATCH_{i:06d}" for i in range(len(df))]
+    else:
+        missing_mask = df["transaction_id"].isna() | (df["transaction_id"].astype(str).str.strip() == "")
+        if missing_mask.any():
+            df.loc[missing_mask, "transaction_id"] = [f"BATCH_{i:06d}" for i in range(missing_mask.sum())]
+
+    scalar_defaults = {
         "age": 35,
         "gender": "M",
         "merchant_category": "unknown",
@@ -330,7 +337,7 @@ async def upload_csv(
         "high_risk_country": 0,
         "velocity_last_24h": 1,
     }
-    for col, default_val in defaults.items():
+    for col, default_val in scalar_defaults.items():
         if col not in df.columns:
             df[col] = default_val
         else:

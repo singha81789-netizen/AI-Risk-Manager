@@ -240,8 +240,8 @@ async def preview_csv(file: UploadFile = File(...)) -> PreviewResponse:
 
     try:
         content = await file.read()
-        if len(content) > 50 * 1024 * 1024:  # 50MB limit
-            raise HTTPException(status_code=400, detail="File size exceeds 50MB limit")
+        if len(content) > 500 * 1024 * 1024:  # 500MB limit
+            raise HTTPException(status_code=400, detail="File size exceeds 500MB limit")
 
         df = pd.read_csv(io.BytesIO(content))
     except HTTPException:
@@ -267,6 +267,42 @@ async def preview_csv(file: UploadFile = File(...)) -> PreviewResponse:
     )
 
 
+CHUNK_SIZE = 5000  # rows per chunk for large files
+
+def _prepare_dataframe(df: pd.DataFrame) -> pd.DataFrame:
+    """Prepare a dataframe chunk for ML scoring: map columns, fill defaults, cast types."""
+    df = _auto_map_columns(df)
+
+    # transaction_id defaults
+    if "transaction_id" not in df.columns:
+        df["transaction_id"] = [f"BATCH_{i:06d}" for i in range(len(df))]
+    else:
+        missing_mask = df["transaction_id"].isna() | (df["transaction_id"].astype(str).str.strip() == "")
+        if missing_mask.any():
+            batch_ids = [f"BATCH_{i:06d}" for i in range(missing_mask.sum())]
+            df.loc[missing_mask, "transaction_id"] = batch_ids
+
+    scalar_defaults = {
+        "age": 35, "gender": "M", "merchant_category": "unknown",
+        "transaction_type": "POS", "card_type": "Credit",
+        "card_present": 1, "device_type": "Unknown",
+        "distance_from_home": 0.0, "distance_from_last_transaction": 0.0,
+        "high_risk_country": 0, "velocity_last_24h": 1,
+    }
+    for col, default_val in scalar_defaults.items():
+        if col not in df.columns:
+            df[col] = default_val
+        else:
+            df[col] = df[col].fillna(default_val)
+
+    for col in ["amount", "distance_from_home", "distance_from_last_transaction"]:
+        df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0.0)
+    for col in ["age", "card_present", "high_risk_country", "velocity_last_24h"]:
+        df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0).astype(int)
+
+    return df
+
+
 @router.post(
     "/upload/csv",
     response_model=BatchUploadResponse,
@@ -289,206 +325,179 @@ async def upload_csv(
     if not file.filename or not file.filename.lower().endswith(".csv"):
         raise HTTPException(status_code=400, detail="File must be a CSV file")
 
+    # Stream the file to a temp path so we don't load 470MB into RAM
+    import tempfile, os
+    tmp_path = None
     try:
-        content = await file.read()
-        if len(content) > 50 * 1024 * 1024:
-            raise HTTPException(status_code=400, detail="File size exceeds 50MB limit")
-        df = pd.read_csv(io.BytesIO(content))
-    except HTTPException:
-        raise
-    except Exception as exc:
-        raise HTTPException(status_code=400, detail=f"Failed to parse CSV: {exc}")
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".csv") as tmp:
+            total_bytes = 0
+            while True:
+                chunk = await file.read(1024 * 1024)  # 1MB chunks
+                if not chunk:
+                    break
+                total_bytes += len(chunk)
+                if total_bytes > 500 * 1024 * 1024:
+                    os.unlink(tmp.name)
+                    raise HTTPException(status_code=400, detail="File size exceeds 500MB limit")
+                tmp.write(chunk)
+            tmp_path = tmp.name
 
-    if df.empty:
-        raise HTTPException(status_code=400, detail="CSV file is empty")
+        # Read CSV in chunks to handle large files
+        results: List[BatchResult] = []
+        errors: List[str] = []
+        high_count = 0
+        medium_count = 0
+        low_count = 0
+        alerts_created = 0
+        total_rows = 0
+        ensemble = _get_ensemble()
+        csv_chunks = pd.read_csv(tmp_path, chunksize=CHUNK_SIZE)
 
-    # Auto-map columns
-    df = _auto_map_columns(df)
+        for chunk_idx, chunk_df in enumerate(csv_chunks):
+            if chunk_df.empty:
+                continue
 
-    # Validate required columns
-    required = ["amount"]
-    missing = [c for c in required if c not in df.columns]
-    if missing:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Missing required columns: {missing}. "
-                   f"Available columns: {list(df.columns)}",
-        )
+            chunk_df = _prepare_dataframe(chunk_df)
 
-    # Fill missing optional columns with defaults
-    # transaction_id needs per-row defaults, handle separately
-    if "transaction_id" not in df.columns:
-        df["transaction_id"] = [f"BATCH_{i:06d}" for i in range(len(df))]
-    else:
-        missing_mask = df["transaction_id"].isna() | (df["transaction_id"].astype(str).str.strip() == "")
-        if missing_mask.any():
-            df.loc[missing_mask, "transaction_id"] = [f"BATCH_{i:06d}" for i in range(missing_mask.sum())]
+            if "amount" not in chunk_df.columns:
+                errors.append(f"Chunk {chunk_idx}: missing 'amount' column")
+                continue
 
-    scalar_defaults = {
-        "age": 35,
-        "gender": "M",
-        "merchant_category": "unknown",
-        "transaction_type": "POS",
-        "card_type": "Credit",
-        "card_present": 1,
-        "device_type": "Unknown",
-        "distance_from_home": 0.0,
-        "distance_from_last_transaction": 0.0,
-        "high_risk_country": 0,
-        "velocity_last_24h": 1,
-    }
-    for col, default_val in scalar_defaults.items():
-        if col not in df.columns:
-            df[col] = default_val
-        else:
-            df[col] = df[col].fillna(default_val)
+            for idx, row in chunk_df.iterrows():
+                txn_dict = row.to_dict()
+                global_idx = chunk_idx * CHUNK_SIZE + idx
+                txn_id = txn_dict.get("transaction_id", f"BATCH_{global_idx:06d}")
 
-    # Ensure correct types
-    for col in ["amount", "distance_from_home", "distance_from_last_transaction"]:
-        df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0.0)
-    for col in ["age", "card_present", "high_risk_country", "velocity_last_24h"]:
-        df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0).astype(int)
-
-    # Run predictions
-    results: List[BatchResult] = []
-    errors: List[str] = []
-    high_count = 0
-    medium_count = 0
-    low_count = 0
-    alerts_created = 0
-
-    ensemble = _get_ensemble()
-
-    for idx, row in df.iterrows():
-        txn_dict = row.to_dict()
-        txn_id = txn_dict.get("transaction_id", f"BATCH_{idx:06d}")
-
-        try:
-            # Supervised prediction
-            result = predictor.score_transaction(txn_dict)
-            result["transaction_id"] = txn_id
-
-            # Ensemble anomaly detection
-            is_anomaly = False
-            anomaly_score = 0.0
-            if ensemble is not None:
                 try:
-                    row_df = pd.DataFrame([txn_dict])
-                    # Ensure correct dtypes for numeric columns
-                    for col in ["amount", "distance_from_home", "distance_from_last_transaction"]:
-                        if col in row_df.columns:
-                            row_df[col] = pd.to_numeric(row_df[col], errors="coerce").fillna(0.0)
-                    for col in ["age", "card_present", "high_risk_country", "velocity_last_24h"]:
-                        if col in row_df.columns:
-                            row_df[col] = pd.to_numeric(row_df[col], errors="coerce").fillna(0).astype(int)
+                    result = predictor.score_transaction(txn_dict)
+                    result["transaction_id"] = txn_id
 
-                    # Use only numeric columns that the ensemble was trained on
-                    numeric_cols = row_df.select_dtypes(include=["number"]).columns.tolist()
-                    if numeric_cols:
-                        ensemble_results = ensemble.detect(row_df[numeric_cols])
-                        if ensemble_results:
-                            er = ensemble_results[0]
-                            is_anomaly = er.is_anomaly
-                            anomaly_score = er.ensemble_score
-                            # Boost risk score if ensemble detects anomaly
-                            if is_anomaly:
-                                result["risk_score"] = min(100, int(result["risk_score"] + anomaly_score * 15))
-                                if result["risk_level"] == "LOW" and result["risk_score"] >= 35:
-                                    result["risk_level"] = "MEDIUM"
-                                elif result["risk_level"] == "MEDIUM" and result["risk_score"] >= 70:
-                                    result["risk_level"] = "HIGH"
-                except Exception as exc:
-                    logger.debug(f"Enomaly detection failed for row {idx}: {exc}")
+                    is_anomaly = False
+                    anomaly_score = 0.0
+                    if ensemble is not None:
+                        try:
+                            row_df = pd.DataFrame([txn_dict])
+                            for col in ["amount", "distance_from_home", "distance_from_last_transaction"]:
+                                if col in row_df.columns:
+                                    row_df[col] = pd.to_numeric(row_df[col], errors="coerce").fillna(0.0)
+                            for col in ["age", "card_present", "high_risk_country", "velocity_last_24h"]:
+                                if col in row_df.columns:
+                                    row_df[col] = pd.to_numeric(row_df[col], errors="coerce").fillna(0).astype(int)
+                            numeric_cols = row_df.select_dtypes(include=["number"]).columns.tolist()
+                            if numeric_cols:
+                                ensemble_results = ensemble.detect(row_df[numeric_cols])
+                                if ensemble_results:
+                                    er = ensemble_results[0]
+                                    is_anomaly = er.is_anomaly
+                                    anomaly_score = er.ensemble_score
+                                    if is_anomaly:
+                                        result["risk_score"] = min(100, int(result["risk_score"] + anomaly_score * 15))
+                                        if result["risk_level"] == "LOW" and result["risk_score"] >= 35:
+                                            result["risk_level"] = "MEDIUM"
+                                        elif result["risk_level"] == "MEDIUM" and result["risk_score"] >= 70:
+                                            result["risk_level"] = "HIGH"
+                        except Exception:
+                            pass
 
-            batch_result = BatchResult(
-                transaction_id=txn_id,
-                amount=float(txn_dict.get("amount", 0)),
-                merchant_category=str(txn_dict.get("merchant_category", "unknown")),
-                fraud_probability=result["fraud_probability"],
-                risk_score=result["risk_score"],
-                risk_level=result["risk_level"],
-                decision=result["decision"],
-                triggered_risk_factors=result["triggered_risk_factors"],
-                is_anomaly=is_anomaly,
-                anomaly_score=anomaly_score,
-            )
-            results.append(batch_result)
-
-            # Count risk levels
-            if result["risk_level"] == "HIGH":
-                high_count += 1
-            elif result["risk_level"] == "MEDIUM":
-                medium_count += 1
-            else:
-                low_count += 1
-
-            # Persist to database
-            try:
-                with get_db_session() as session:
-                    txn_record = Transaction(
+                    batch_result = BatchResult(
                         transaction_id=txn_id,
-                        customer_id=str(txn_dict.get("customer_id", "")),
-                        merchant_id=str(txn_dict.get("merchant_id", "")),
-                        timestamp=str(txn_dict.get("timestamp", "")),
-                        age=int(txn_dict.get("age", 0)),
-                        gender=str(txn_dict.get("gender", "")),
-                        merchant_category=str(txn_dict.get("merchant_category", "")),
                         amount=float(txn_dict.get("amount", 0)),
-                        transaction_type=str(txn_dict.get("transaction_type", "")),
-                        card_type=str(txn_dict.get("card_type", "")),
-                        card_present=int(txn_dict.get("card_present", 0)),
-                        device_type=str(txn_dict.get("device_type", "")),
-                        distance_from_home=float(txn_dict.get("distance_from_home", 0)),
-                        distance_from_last_transaction=float(txn_dict.get("distance_from_last_transaction", 0)),
-                        high_risk_country=int(txn_dict.get("high_risk_country", 0)),
-                        velocity_last_24h=int(txn_dict.get("velocity_last_24h", 0)),
-                    )
-                    session.add(txn_record)
-
-                    pred_record = RiskPrediction(
-                        transaction_id=txn_id,
+                        merchant_category=str(txn_dict.get("merchant_category", "unknown")),
                         fraud_probability=result["fraud_probability"],
                         risk_score=result["risk_score"],
                         risk_level=result["risk_level"],
-                        prediction=result["decision"],
-                        triggered_risk_factors=json.dumps(result["triggered_risk_factors"]),
-                        model_version=MODEL_VERSION,
+                        decision=result["decision"],
+                        triggered_risk_factors=result["triggered_risk_factors"],
+                        is_anomaly=is_anomaly,
+                        anomaly_score=anomaly_score,
                     )
-                    session.add(pred_record)
+                    results.append(batch_result)
 
-                    # Auto-create alert for HIGH risk
                     if result["risk_level"] == "HIGH":
-                        reasons = result["triggered_risk_factors"]
-                        if is_anomaly:
-                            reasons = reasons + ["Ensemble anomaly detector flagged this transaction"]
-                        alert = Alert(
-                            transaction_id=txn_id,
-                            risk_score=result["risk_score"],
-                            risk_level=result["risk_level"],
-                            reason=json.dumps(reasons),
-                            status="OPEN",
-                        )
-                        session.add(alert)
-                        alerts_created += 1
+                        high_count += 1
+                    elif result["risk_level"] == "MEDIUM":
+                        medium_count += 1
+                    else:
+                        low_count += 1
 
-            except Exception as exc:
-                logger.warning(f"Failed to persist batch result for {txn_id}: {exc}")
+                    # Persist to database
+                    try:
+                        with get_db_session() as session:
+                            txn_record = Transaction(
+                                transaction_id=txn_id,
+                                customer_id=str(txn_dict.get("customer_id", "")),
+                                merchant_id=str(txn_dict.get("merchant_id", "")),
+                                timestamp=str(txn_dict.get("timestamp", "")),
+                                age=int(txn_dict.get("age", 0)),
+                                gender=str(txn_dict.get("gender", "")),
+                                merchant_category=str(txn_dict.get("merchant_category", "")),
+                                amount=float(txn_dict.get("amount", 0)),
+                                transaction_type=str(txn_dict.get("transaction_type", "")),
+                                card_type=str(txn_dict.get("card_type", "")),
+                                card_present=int(txn_dict.get("card_present", 0)),
+                                device_type=str(txn_dict.get("device_type", "")),
+                                distance_from_home=float(txn_dict.get("distance_from_home", 0)),
+                                distance_from_last_transaction=float(txn_dict.get("distance_from_last_transaction", 0)),
+                                high_risk_country=int(txn_dict.get("high_risk_country", 0)),
+                                velocity_last_24h=int(txn_dict.get("velocity_last_24h", 0)),
+                            )
+                            session.add(txn_record)
 
-        except Exception as exc:
-            errors.append(f"Row {idx}: {str(exc)}")
-            logger.warning(f"Failed to process row {idx}: {exc}")
+                            pred_record = RiskPrediction(
+                                transaction_id=txn_id,
+                                fraud_probability=result["fraud_probability"],
+                                risk_score=result["risk_score"],
+                                risk_level=result["risk_level"],
+                                prediction=result["decision"],
+                                triggered_risk_factors=json.dumps(result["triggered_risk_factors"]),
+                                model_version=MODEL_VERSION,
+                            )
+                            session.add(pred_record)
 
-    return BatchUploadResponse(
-        filename=file.filename,
-        total_rows=len(df),
-        processed_rows=len(results),
-        errors=errors,
-        high_risk_count=high_count,
-        medium_risk_count=medium_count,
-        low_risk_count=low_count,
-        alerts_created=alerts_created,
-        results=results,
-    )
+                            if result["risk_level"] == "HIGH":
+                                reasons = result["triggered_risk_factors"]
+                                if is_anomaly:
+                                    reasons = reasons + ["Ensemble anomaly detector flagged this transaction"]
+                                alert = Alert(
+                                    transaction_id=txn_id,
+                                    risk_score=result["risk_score"],
+                                    risk_level=result["risk_level"],
+                                    reason=json.dumps(reasons),
+                                    status="OPEN",
+                                )
+                                session.add(alert)
+                                alerts_created += 1
+                    except Exception as exc:
+                        logger.warning(f"Failed to persist {txn_id}: {exc}")
+
+                except Exception as exc:
+                    errors.append(f"Row {global_idx}: {str(exc)}")
+
+            total_rows += len(chunk_df)
+            if chunk_idx % 10 == 0:
+                logger.info(f"Upload progress: {total_rows} rows processed ({high_count} high, {medium_count} medium)")
+
+        logger.info(f"Upload complete: {total_rows} rows, {high_count} high-risk, {alerts_created} alerts")
+        return BatchUploadResponse(
+            filename=file.filename,
+            total_rows=total_rows,
+            processed_rows=len(results),
+            errors=errors[:50],
+            high_risk_count=high_count,
+            medium_risk_count=medium_count,
+            low_risk_count=low_count,
+            alerts_created=alerts_created,
+            results=results[-100:],
+        )
+
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error(f"Upload failed: {exc}")
+        raise HTTPException(status_code=500, detail=f"Upload failed: {exc}")
+    finally:
+        if tmp_path and os.path.exists(tmp_path):
+            os.unlink(tmp_path)
 
 
 @router.post(

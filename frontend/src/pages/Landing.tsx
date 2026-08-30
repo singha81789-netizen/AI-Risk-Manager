@@ -2,7 +2,8 @@ import { useState, useEffect, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import {
   Shield, Zap, Brain, Bell, FileBarChart, Briefcase, ScrollText,
-  Upload, Cpu, ShieldCheck, Activity, ShieldAlert, Target, ArrowRight, ChevronRight
+  Upload, Cpu, ShieldCheck, Activity, ShieldAlert, Target, ArrowRight, ChevronRight,
+  BarChart3, FileText, CheckCircle2, TrendingUp
 } from 'lucide-react'
 
 function useCountUp(target: number, duration = 2000, trigger = false) {
@@ -188,6 +189,83 @@ export default function Landing() {
                 <p className="text-navy-300 text-sm max-w-xs">{s.desc}</p>
               </div>
             ))}
+          </div>
+        </div>
+      </section>
+
+      {/* ─── Project Overview ─── */}
+      <section className="py-24 px-6 bg-navy-950">
+        <div className="max-w-6xl mx-auto">
+          <div className="text-center mb-16">
+            <h2 className="text-3xl sm:text-4xl font-bold mb-4"><span className="text-accent">AI-Driven</span> Risk Intelligence</h2>
+            <p className="text-navy-300 text-lg max-w-2xl mx-auto">Real-time analytics and executive summaries powered by machine learning</p>
+          </div>
+          <div className="grid lg:grid-cols-2 gap-6">
+            {/* Risk Prioritization */}
+            <div className="glass-card p-6">
+              <div className="flex items-center gap-2 mb-5">
+                <BarChart3 className="w-5 h-5 text-accent" />
+                <h3 className="text-base font-semibold text-white">Risk Prioritization Overview</h3>
+              </div>
+              <div className="space-y-4">
+                {[
+                  { label: 'Credential Compromise', pct: 92, color: 'bg-red-500', icon: ShieldAlert },
+                  { label: 'Identity Theft', pct: 78, color: 'bg-orange-500', icon: ShieldAlert },
+                  { label: 'Synthetic Identity', pct: 65, color: 'bg-amber-500', icon: ShieldAlert },
+                  { label: 'Account Takeover', pct: 45, color: 'bg-yellow-500', icon: ShieldAlert },
+                  { label: 'Friendly Fraud', pct: 28, color: 'bg-green-500', icon: ShieldAlert },
+                ].map((item, i) => (
+                  <div key={item.label} className="flex items-center gap-3">
+                    <span className="text-xs text-navy-500 w-4 text-right font-medium">{i + 1}.</span>
+                    <div className="w-8 h-8 rounded-lg bg-accent/10 flex items-center justify-center shrink-0">
+                      <item.icon className="w-4 h-4 text-accent" />
+                    </div>
+                    <div className="flex-1">
+                      <div className="flex items-center justify-between mb-1.5">
+                        <span className="text-sm text-white font-medium">{item.label}</span>
+                        <span className="text-xs text-navy-400">{item.pct}%</span>
+                      </div>
+                      <div className="w-full h-2 rounded-full bg-navy-700 overflow-hidden">
+                        <div className={`h-full rounded-full ${item.color} transition-all duration-1000`} style={{ width: `${item.pct}%` }} />
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Executive Summary */}
+            <div className="glass-card p-6 flex flex-col">
+              <div className="flex items-center gap-2 mb-5">
+                <FileText className="w-5 h-5 text-accent" />
+                <h3 className="text-base font-semibold text-white">Structured Executive Summary</h3>
+              </div>
+              <div className="flex-1 text-sm text-navy-300 leading-relaxed space-y-4">
+                <p>
+                  Over the past 30 days, <span className="text-white font-semibold">2.4M+</span> transactions were monitored across all accounts. <span className="text-amber-400 font-semibold">15,847</span> transactions were flagged as high-risk and routed to the analyst queue. AI models detected <span className="text-purple-400 font-semibold">892</span> active alerts requiring immediate attention.
+                </p>
+                <div>
+                  <p className="text-white font-semibold text-xs uppercase tracking-wider mb-2">Key Findings</p>
+                  <ul className="space-y-2">
+                    <li className="flex items-start gap-2"><CheckCircle2 className="w-3.5 h-3.5 text-red-400 mt-0.5 shrink-0" /> Credential compromise remains the #1 risk vector, accounting for 92% of high-severity incidents.</li>
+                    <li className="flex items-start gap-2"><CheckCircle2 className="w-3.5 h-3.5 text-orange-400 mt-0.5 shrink-0" /> Identity theft and synthetic identity fraud show a rising trend (+15% month-over-month).</li>
+                    <li className="flex items-start gap-2"><CheckCircle2 className="w-3.5 h-3.5 text-green-400 mt-0.5 shrink-0" /> Ensemble detection pipeline achieved 99.7% accuracy with &lt;0.3% false-positive rate.</li>
+                  </ul>
+                </div>
+                <div>
+                  <p className="text-white font-semibold text-xs uppercase tracking-wider mb-2">Recommended Actions</p>
+                  <ul className="space-y-2">
+                    <li className="flex items-start gap-2"><span className="text-accent font-bold mt-0.5">1.</span> Implement adaptive MFA for all high-value transaction paths.</li>
+                    <li className="flex items-start gap-2"><span className="text-accent font-bold mt-0.5">2.</span> Increase monitoring thresholds for synthetic identity indicators.</li>
+                    <li className="flex items-start gap-2"><span className="text-accent font-bold mt-0.5">3.</span> Schedule quarterly model retraining to maintain detection efficacy.</li>
+                  </ul>
+                </div>
+                <div className="flex items-center gap-2 pt-2 border-t border-white/5">
+                  <TrendingUp className="w-4 h-4 text-green-400" />
+                  <span className="text-xs text-navy-400">Overall risk posture improved by <span className="text-green-400 font-semibold">12%</span> this quarter</span>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </section>

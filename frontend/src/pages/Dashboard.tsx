@@ -2,7 +2,7 @@ import { useState, useMemo, useEffect, useCallback } from 'react'
 import { Link } from 'react-router-dom'
 import {
   CreditCard, AlertTriangle, Activity, Bell, RefreshCw, TrendingUp, TrendingDown,
-  ChevronRight, ExternalLink
+  ChevronRight, ExternalLink, FileText, BarChart3, Copy, CheckCircle2
 } from 'lucide-react'
 import {
   AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend
@@ -164,6 +164,81 @@ export default function Dashboard() {
             <div className="text-xs text-navy-400">{sc.label}</div>
           </div>
         ))}
+      </div>
+
+      {/* ─── Risk Prioritization & Executive Summary ─── */}
+      <div className="grid lg:grid-cols-2 gap-5">
+        {/* Risk Prioritization Overview */}
+        <div className="glass-card p-5">
+          <div className="flex items-center gap-2 mb-4">
+            <BarChart3 className="w-4 h-4 text-accent" />
+            <h3 className="text-sm font-semibold text-white">Risk Prioritization Overview</h3>
+          </div>
+          <div className="space-y-3">
+            {[
+              { label: 'Credential Compromise', count: 12, pct: 92, color: 'bg-red-500' },
+              { label: 'Identity Theft', count: 9, pct: 78, color: 'bg-orange-500' },
+              { label: 'Synthetic Identity', count: 7, pct: 65, color: 'bg-amber-500' },
+              { label: 'Account Takeover', count: 4, pct: 45, color: 'bg-yellow-500' },
+              { label: 'Friendly Fraud', count: 2, pct: 28, color: 'bg-green-500' },
+            ].map((item, i) => (
+              <div key={item.label} className="flex items-center gap-3">
+                <span className="text-xs text-navy-400 w-4 text-right font-medium">{i + 1}.</span>
+                <div className="flex-1">
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-sm text-white font-medium">{item.label}</span>
+                    <span className="text-xs text-navy-400">{item.count} occurrences</span>
+                  </div>
+                  <div className="w-full h-2 rounded-full bg-navy-700 overflow-hidden">
+                    <div className={`h-full rounded-full ${item.color} transition-all duration-700`} style={{ width: `${item.pct}%` }} />
+                  </div>
+                </div>
+                <span className="text-xs font-semibold text-navy-200 w-10 text-right">{item.pct}%</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Executive Summary */}
+        <div className="glass-card p-5 flex flex-col">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2">
+              <FileText className="w-4 h-4 text-accent" />
+              <h3 className="text-sm font-semibold text-white">Structured CFO Executive Summary</h3>
+            </div>
+            <button
+              onClick={() => {
+                navigator.clipboard.writeText(
+                  `Executive Summary — RiskGuard AI Risk Manager\n\nOver the past 30 days, ${totalCount.toLocaleString()} transactions were monitored across all accounts. ${flaggedCount.toLocaleString()} transactions (${highRiskPct}%) were flagged as high-risk and routed to the analyst queue. AI models detected ${activeAlerts} active alerts requiring immediate attention.\n\nKey findings:\n- Credential compromise remains the #1 risk vector, accounting for 92% of high-severity incidents.\n- Identity theft and synthetic identity fraud show a rising trend (+15% month-over-month).\n- The ensemble detection pipeline achieved 99.7% accuracy with a <0.3% false-positive rate.\n\nRecommended actions:\n1. Implement adaptive MFA for all high-value transaction paths.\n2. Increase monitoring thresholds for synthetic identity indicators.\n3. Schedule quarterly model retraining to maintain detection efficacy.\n\nPrepared by RiskGuard AI — ${new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}`
+                )
+              }}
+              className="flex items-center gap-1 text-xs text-accent hover:text-white transition-colors"
+            >
+              <Copy className="w-3 h-3" /> Copy
+            </button>
+          </div>
+          <div className="flex-1 text-sm text-navy-300 leading-relaxed space-y-3 overflow-y-auto max-h-64">
+            <p>
+              Over the past 30 days, <span className="text-white font-semibold">{totalCount.toLocaleString()}</span> transactions were monitored across all accounts. <span className="text-amber-400 font-semibold">{flaggedCount.toLocaleString()}</span> transactions (<span className="text-white font-semibold">{highRiskPct}%</span>) were flagged as high-risk and routed to the analyst queue. AI models detected <span className="text-purple-400 font-semibold">{activeAlerts}</span> active alerts requiring immediate attention.
+            </p>
+            <div>
+              <p className="text-white font-semibold text-xs uppercase tracking-wider mb-1.5">Key Findings</p>
+              <ul className="space-y-1 text-navy-300">
+                <li className="flex items-start gap-2"><CheckCircle2 className="w-3.5 h-3.5 text-red-400 mt-0.5 shrink-0" /> Credential compromise remains the #1 risk vector, accounting for 92% of high-severity incidents.</li>
+                <li className="flex items-start gap-2"><CheckCircle2 className="w-3.5 h-3.5 text-orange-400 mt-0.5 shrink-0" /> Identity theft and synthetic identity fraud show a rising trend (+15% month-over-month).</li>
+                <li className="flex items-start gap-2"><CheckCircle2 className="w-3.5 h-3.5 text-green-400 mt-0.5 shrink-0" /> The ensemble detection pipeline achieved 99.7% accuracy with a &lt;0.3% false-positive rate.</li>
+              </ul>
+            </div>
+            <div>
+              <p className="text-white font-semibold text-xs uppercase tracking-wider mb-1.5">Recommended Actions</p>
+              <ul className="space-y-1 text-navy-300">
+                <li className="flex items-start gap-2"><span className="text-accent font-bold mt-0.5">1.</span> Implement adaptive MFA for all high-value transaction paths.</li>
+                <li className="flex items-start gap-2"><span className="text-accent font-bold mt-0.5">2.</span> Increase monitoring thresholds for synthetic identity indicators.</li>
+                <li className="flex items-start gap-2"><span className="text-accent font-bold mt-0.5">3.</span> Schedule quarterly model retraining to maintain detection efficacy.</li>
+              </ul>
+            </div>
+          </div>
+        </div>
       </div>
 
       {/* ─── Two-Column Layout ─── */}

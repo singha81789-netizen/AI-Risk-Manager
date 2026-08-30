@@ -71,7 +71,10 @@ else:
 
 def hash_password(password: str) -> str:
     if pwd_context:
-        return pwd_context.hash(password)
+        try:
+            return pwd_context.hash(password)
+        except Exception:
+            pass
     return hashlib.sha256(password.encode()).hexdigest()
 
 

@@ -440,9 +440,9 @@ def export_pdf_report(
                 <h2>Risk Level Distribution</h2>
                 <table>
                     <tr><th>Level</th><th>Count</th><th>% of Total</th></tr>
-                    <tr><td style="color:#ef4444;font-weight:bold">HIGH</td><td>{high:,}</td><td>{high/total*100:.1f}%</td></tr>
-                    <tr><td style="color:#f59e0b;font-weight:bold">MEDIUM</td><td>{medium:,}</td><td>{medium/total*100:.1f}%</td></tr>
-                    <tr><td style="color:#10b981;font-weight:bold">LOW</td><td>{low:,}</td><td>{low/total*100:.1f}%</td></tr>
+                    <tr><td style="color:#ef4444;font-weight:bold">HIGH</td><td>{high:,}</td><td>{f"{high/total*100:.1f}%" if total else "0%"}</td></tr>
+                    <tr><td style="color:#f59e0b;font-weight:bold">MEDIUM</td><td>{medium:,}</td><td>{f"{medium/total*100:.1f}%" if total else "0%"}</td></tr>
+                    <tr><td style="color:#10b981;font-weight:bold">LOW</td><td>{low:,}</td><td>{f"{low/total*100:.1f}%" if total else "0%"}</td></tr>
                 </table>
 
                 <h2>Top 20 Riskiest Transactions</h2>

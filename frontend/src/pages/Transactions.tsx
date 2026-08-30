@@ -6,6 +6,7 @@ import {
 } from 'lucide-react'
 import Papa from 'papaparse'
 import { useApp } from '../contexts/AppContext'
+import { uploadCsvFile } from '../services/api'
 import type { Transaction, TransactionStatus, RiskLevel } from '../types'
 
 type SortField = 'riskScore' | 'amount' | 'date' | 'id'
@@ -234,65 +235,54 @@ export default function Transactions() {
     })
   }, [csvFile])
 
-  const doImport = useCallback(() => {
+  const doImport = useCallback(async () => {
     if (!csvFile) return
     setImporting(true)
     setImportProgress(0)
-    Papa.parse<Record<string, string>>(csvFile, {
-      header: true,
-      skipEmptyLines: true,
-      complete: (results) => {
-        const interval = setInterval(() => {
-          setImportProgress(p => {
-            if (p >= 100) {
-              clearInterval(interval)
-              const mapped: Transaction[] = results.data.map((row, i) => ({
-                id: row.id || row.ID || `TXN-IMP-${Date.now()}-${i}`,
-                date: row.date || row.Date || new Date().toISOString().replace('T', ' ').slice(0, 16),
-                amount: parseFloat(row.amount || row.Amount || '0') || 0,
-                user: row.user || row.User || row.customer || row.Customer || 'Unknown',
-                location: row.location || row.Location || 'Unknown',
-                category: row.category || row.Category || 'Other',
-                riskScore: parseInt(row.riskScore || row.risk_score || row['Risk Score'] || '0') || Math.floor(Math.random() * 100),
-                riskLevel: 'MEDIUM' as RiskLevel,
-                status: (row.status || row.Status || 'pending') as TransactionStatus,
-                merchant: row.merchant || row.Merchant || 'Unknown',
-                cardType: row.cardType || row.card_type || row['Card Type'] || 'Unknown',
-                deviceType: row.deviceType || row.device_type || row['Device Type'] || 'Unknown',
-                flagged: row.flagged === 'true' || row.flagged === '1',
-                aiReasons: generateMockAiReasons(
-                  parseFloat(row.amount || '0') || 0,
-                  row.location || '',
-                  parseInt(row.riskScore || '0') || 50
-                ),
-              }))
-              mapped.forEach(t => {
-                if (t.riskScore >= 85) t.riskLevel = 'HIGH'
-                else if (t.riskScore >= 70) t.riskLevel = 'MEDIUM'
-                else t.riskLevel = 'LOW'
-                t.flagged = t.riskScore >= 70
-              })
-              addTransactions(mapped)
-              addAuditEntry({
-                id: `AUD-${Date.now()}`,
-                action: 'CSV Import',
-                user: 'System',
-                timestamp: new Date().toISOString().replace('T', ' ').slice(0, 16),
-                details: `Imported ${mapped.length} transactions via CSV upload`,
-                ipAddress: '127.0.0.1',
-                module: 'Transactions',
-              })
-              setImporting(false)
-              setShowUploadModal(false)
-              setToast(`Successfully imported ${mapped.length} transactions!`)
-              setTimeout(() => setToast(''), 3000)
-              return 100
-            }
-            return p + 12
-          })
-        }, 80)
-      },
-    })
+    try {
+      setImportProgress(20)
+      const result = await uploadCsvFile(csvFile)
+      setImportProgress(80)
+
+      const mapped: Transaction[] = (result.results || []).map((r: Record<string, unknown>, i: number) => ({
+        id: (r.transaction_id as string) || `TXN-BATCH-${Date.now()}-${i}`,
+        date: new Date().toISOString().replace('T', ' ').slice(0, 16),
+        amount: (r.amount as number) || 0,
+        user: `Customer ${(r.transaction_id as string) || i}`,
+        location: 'Unknown',
+        category: (r.merchant_category as string) || 'Other',
+        riskScore: (r.risk_score as number) || 0,
+        riskLevel: ((r.risk_level as string) || 'LOW') as RiskLevel,
+        status: ((r.decision as string) === 'DECLINE' ? 'declined' : r.decision as string === 'REVIEW' ? 'under_review' : 'approved') as TransactionStatus,
+        merchant: (r.merchant_category as string) || 'Unknown',
+        cardType: 'Unknown',
+        deviceType: 'Unknown',
+        flagged: ((r.risk_score as number) || 0) >= 70,
+        aiReasons: (r.triggered_risk_factors as string[]) || [],
+      }))
+
+      addTransactions(mapped)
+      addAuditEntry({
+        id: `AUD-${Date.now()}`,
+        action: 'CSV Import',
+        user: 'System',
+        timestamp: new Date().toISOString().replace('T', ' ').slice(0, 16),
+        details: `Imported ${mapped.length} transactions via CSV upload (${result.high_risk_count || 0} high-risk, ${result.medium_risk_count || 0} medium-risk, ${result.alerts_created || 0} alerts created)`,
+        ipAddress: '127.0.0.1',
+        module: 'Transactions',
+      })
+      setImportProgress(100)
+      setImporting(false)
+      setShowUploadModal(false)
+      setToast(`Successfully imported ${mapped.length} transactions! ${result.high_risk_count || 0} flagged as high-risk.`)
+      setTimeout(() => setToast(''), 3000)
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Import failed'
+      setImporting(false)
+      setShowUploadModal(false)
+      setToast(`Import error: ${msg}`)
+      setTimeout(() => setToast(''), 4000)
+    }
   }, [csvFile, addTransactions, addAuditEntry])
 
   // Quick action handlers for detail drawer
@@ -760,6 +750,15 @@ export default function Transactions() {
               </div>
 
               <div className="p-6">
+                {/* Hidden file input */}
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".csv,.xlsx"
+                  onChange={handleFileSelect}
+                  className="hidden"
+                />
+
                 {/* Drag and Drop Zone */}
                 {!csvFile ? (
                   <div

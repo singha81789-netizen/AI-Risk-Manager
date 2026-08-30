@@ -73,6 +73,8 @@ export interface Report {
   date: string
   status: string
   size: string
+  days?: number
+  format?: 'pdf' | 'excel'
 }
 
 export interface AuditEntry {

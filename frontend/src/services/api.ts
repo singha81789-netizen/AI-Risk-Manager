@@ -3,10 +3,12 @@ const BASE_URL = '';
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const token = localStorage.getItem('riskguard-token');
   const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
     ...(options?.headers as Record<string, string> || {}),
   };
+  if (!(options?.body instanceof FormData)) {
+    headers['Content-Type'] = 'application/json';
+  }
   const res = await fetch(`${BASE_URL}${path}`, { ...options, headers });
   if (!res.ok) {
     const body = await res.json().catch(() => ({ detail: res.statusText }));
@@ -32,6 +34,23 @@ export async function authLogin(data: { email: string; password: string }) {
 
 export async function authMe() {
   return request<{ id: string; email: string; name: string; role: string }>('/auth/me');
+}
+
+// --- Upload ---
+export async function uploadCsvFile(file: File) {
+  const token = localStorage.getItem('riskguard-token');
+  const formData = new FormData();
+  formData.append('file', file);
+  const res = await fetch(`${BASE_URL}/upload/csv`, {
+    method: 'POST',
+    body: formData,
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(body.detail || `Upload failed: ${res.status}`);
+  }
+  return res.json();
 }
 
 // --- Dashboard ---

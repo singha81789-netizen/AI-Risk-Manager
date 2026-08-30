@@ -85,6 +85,8 @@ export default function Reports() {
         date: now.toISOString().slice(0, 10),
         status: 'Completed',
         size: `${((summary as Record<string, unknown>).total_transactions as number || 0) * 0.002 + 0.5} MB`,
+        days,
+        format,
       }
       addReport(newReport)
       addAuditEntry({
@@ -96,7 +98,27 @@ export default function Reports() {
         ipAddress: '127.0.0.1',
         module: 'Report',
       })
-      showToast(`${reportType} generated successfully`)
+
+      if (format === 'pdf') {
+        const blob = await downloadPdfReport(days)
+        const url = URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = url
+        a.download = `${reportType.replace(/\s+/g, '_')}_${now.toISOString().slice(0, 10)}.pdf`
+        a.click()
+        URL.revokeObjectURL(url)
+        showToast(`${reportType} generated and downloaded as PDF`)
+      } else {
+        const blob = await downloadCsvReport(days)
+        const url = URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = url
+        a.download = `${reportType.replace(/\s+/g, '_')}_${now.toISOString().slice(0, 10)}.csv`
+        a.click()
+        URL.revokeObjectURL(url)
+        showToast(`${reportType} generated and downloaded as CSV`)
+      }
+
       setDateStart('')
       setDateEnd('')
     } catch (err: unknown) {
@@ -141,14 +163,12 @@ export default function Reports() {
   const handleDownloadPdf = useCallback(async (report: typeof reports[0]) => {
     setDownloading(report.id + '-pdf')
     try {
-      const days = dateStart && dateEnd
-        ? Math.max(1, Math.round((new Date(dateEnd).getTime() - new Date(dateStart).getTime()) / 86400000))
-        : 30
+      const days = report.days || 30
       const blob = await downloadPdfReport(days)
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
-      a.download = `${report.title.replace(/\s+/g, '_')}_${report.date}.html`
+      a.download = `${report.title.replace(/\s+/g, '_')}_${report.date}.pdf`
       a.click()
       URL.revokeObjectURL(url)
       addAuditEntry({
@@ -167,14 +187,12 @@ export default function Reports() {
     } finally {
       setDownloading(null)
     }
-  }, [dateStart, dateEnd, addAuditEntry, showToast])
+  }, [addAuditEntry, showToast])
 
   const handleDownloadExcel = useCallback(async (report: typeof reports[0]) => {
     setDownloading(report.id + '-csv')
     try {
-      const days = dateStart && dateEnd
-        ? Math.max(1, Math.round((new Date(dateEnd).getTime() - new Date(dateStart).getTime()) / 86400000))
-        : 30
+      const days = report.days || 30
       const blob = await downloadCsvReport(days)
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
@@ -198,7 +216,7 @@ export default function Reports() {
     } finally {
       setDownloading(null)
     }
-  }, [dateStart, dateEnd, addAuditEntry, showToast])
+  }, [addAuditEntry, showToast])
 
   const statCards = [
     { label: 'Total Reports', value: totalCount, bg: 'bg-blue-500/15', iconColor: 'text-blue-400' },

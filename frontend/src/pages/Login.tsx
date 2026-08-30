@@ -30,7 +30,7 @@ export default function Login() {
   const [showPassword, setShowPassword] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
-  const [errorType, setErrorType] = useState<'notFound' | 'unverified' | 'general' | null>(null)
+  const [errorType, setErrorType] = useState<'notFound' | 'general' | null>(null)
   const [success, setSuccess] = useState(initialSuccess)
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({})
 
@@ -74,8 +74,6 @@ export default function Login() {
       setError(msg)
       if (msg.toLowerCase().includes('account not found') || msg.toLowerCase().includes('not found')) {
         setErrorType('notFound')
-      } else if (msg.toLowerCase().includes('verify your email') || msg.toLowerCase().includes('not verified')) {
-        setErrorType('unverified')
       } else {
         setErrorType('general')
       }
@@ -184,17 +182,6 @@ export default function Login() {
                     className="inline-flex items-center gap-1 text-xs font-semibold text-white bg-red-500/20 hover:bg-red-500/30 px-3 py-1.5 rounded-lg transition-colors"
                   >
                     Create an account <ArrowRight className="w-3 h-3" />
-                  </Link>
-                </div>
-              )}
-              {errorType === 'unverified' && (
-                <div className="mt-3 pt-2.5 border-t border-red-500/20 flex justify-end">
-                  <Link
-                    to={`/verify-email?email=${encodeURIComponent(email.trim())}`}
-                    state={{ email: email.trim() }}
-                    className="inline-flex items-center gap-1 text-xs font-semibold text-white bg-[#4F6DF5] hover:bg-[#3B50C4] px-3 py-1.5 rounded-lg transition-colors"
-                  >
-                    Verify Email Now <ArrowRight className="w-3 h-3" />
                   </Link>
                 </div>
               )}

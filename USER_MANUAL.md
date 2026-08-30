@@ -50,7 +50,7 @@ The system processes financial transactions, assigns risk scores (0-100), classi
 | Explainability | **SHAP** (optional) | Per-prediction feature attribution |
 | Visualization | **matplotlib**, **seaborn** | Charts and plots (notebooks) |
 | Serialization | **joblib** | Model artifact save/load |
-| Authentication | **passlib** (bcrypt), **python-jose** (JWT), **pyotp** | User auth + OTP |
+| Authentication | **passlib** (bcrypt), **python-jose** (JWT) | User auth & JWT tokens |
 | PDF Generation | **reportlab** | PDF report creation |
 | Validation | **Pydantic** | Request/response schema validation |
 | Environment | **python-dotenv** | Environment variable loading |
@@ -131,7 +131,7 @@ AI-Risk-Manager/
 |   +-- routes.py                 # Core: predict, explain, transactions, dashboard
 |   +-- routes_ai_models.py       # AI model management endpoints
 |   +-- routes_alerts.py          # Alert CRUD endpoints
-|   +-- routes_auth.py            # JWT + OTP authentication
+|   +-- routes_auth.py            # JWT authentication (register, login, me)
 |   +-- routes_reports.py         # PDF/CSV report generation
 |   +-- routes_upload.py          # CSV batch upload + analysis
 |
@@ -533,10 +533,8 @@ scripts/retrain_model.py --promote <version>
 
 | Method | Endpoint | Description |
 |---|---|---|
-| POST | `/auth/register` | Register new user + send OTP |
-| POST | `/auth/verify-otp` | Verify OTP for registration |
-| POST | `/auth/login` | Send OTP to registered email |
-| POST | `/auth/login/verify` | Verify OTP + get JWT token |
+| POST | `/auth/register` | Register new user account + get JWT token |
+| POST | `/auth/login` | Sign in with email and password + get JWT token |
 | GET | `/auth/me` | Get current authenticated user |
 
 ### Core Prediction
@@ -600,8 +598,8 @@ scripts/retrain_model.py --promote <version>
 | Page | Route | Description |
 |---|---|---|
 | Landing | `/` | Marketing/landing page |
-| Login | `/login` | Email + OTP authentication |
-| Signup | `/register` | User registration + OTP verification |
+| Login | `/login` | Email + password authentication |
+| Signup | `/register` | User registration & direct sign-in |
 | Dashboard | `/dashboard` | Real-time stats, charts, alerts |
 | Transactions | `/transactions` | Full transaction list with search/filter |
 | Alerts | `/alerts` | Alert management with status updates |
@@ -637,7 +635,7 @@ scripts/retrain_model.py --promote <version>
 - **Development/Fallback**: SQLite at `data/ai_risk_manager.db`
 - SQLite runs in WAL mode for better concurrency
 
-### Tables (7 ORM Models)
+### Tables (6 ORM Models)
 
 | Table | Model | Purpose |
 |---|---|---|
@@ -647,7 +645,6 @@ scripts/retrain_model.py --promote <version>
 | `audit_logs` | AuditLog | Immutable audit trail of all actions |
 | `alerts` | Alert | Auto-generated alerts for HIGH/MEDIUM risk |
 | `users` | User | User accounts with roles (Admin/Analyst/Viewer) |
-| `otp_verifications` | OTPVerification | Time-limited OTP codes for email verification |
 
 ---
 

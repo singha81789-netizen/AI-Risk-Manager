@@ -2,6 +2,7 @@ import { useState, useCallback } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { Shield, Eye, EyeOff, CheckCircle, Loader2, Mail, AlertCircle, Lock, User as UserIcon } from 'lucide-react'
 import { useTheme } from '../contexts/ThemeContext'
+import { useApp } from '../contexts/AppContext'
 import { authRegister } from '../services/api'
 import type { UserRole } from '../types'
 
@@ -15,6 +16,7 @@ interface FieldErrors {
 
 export default function Signup() {
   const navigate = useNavigate()
+  const { login } = useApp()
   const { theme } = useTheme()
   const isDark = theme === 'dark'
 
@@ -77,23 +79,31 @@ export default function Signup() {
     const cleanEmail = email.trim().toLowerCase()
 
     try {
-      await authRegister({
+      const result = await authRegister({
         name: name.trim(),
         email: cleanEmail,
         password,
         role,
       })
-      sessionStorage.setItem('riskguard-verify-email', cleanEmail)
-      navigate(`/verify-email?email=${encodeURIComponent(cleanEmail)}`, {
-        state: { email: cleanEmail },
-      })
+      if (result.token && result.user) {
+        localStorage.setItem('riskguard-token', result.token)
+        login(result.user.email, '', result.user.role as UserRole)
+        navigate('/dashboard')
+      } else {
+        navigate('/login', {
+          state: {
+            successMessage: 'Account created successfully! Please sign in.',
+            email: cleanEmail,
+          },
+        })
+      }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Registration failed'
       setError(msg)
     } finally {
       setLoading(false)
     }
-  }, [name, email, password, role, validateFields, navigate])
+  }, [name, email, password, role, validateFields, login, navigate])
 
   const benefits = [
     'AI-powered fraud detection engine',

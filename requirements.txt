@@ -16,7 +16,6 @@ python-multipart
 # Authentication
 passlib[bcrypt]
 python-jose[cryptography]
-pyotp
 email-validator
 
 # PDF report generation

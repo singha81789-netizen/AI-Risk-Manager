@@ -17,21 +17,7 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 
 // --- Auth ---
 export async function authRegister(data: { email: string; password: string; name: string; role: string }) {
-  return request<{ message: string; email: string; user_id?: number }>('/auth/register', {
-    method: 'POST',
-    body: JSON.stringify(data),
-  });
-}
-
-export async function authVerifyOtp(data: { email: string; code: string }) {
-  return request<{ message: string; email?: string }>('/auth/verify-otp', {
-    method: 'POST',
-    body: JSON.stringify(data),
-  });
-}
-
-export async function authResendOtp(data: { email: string }) {
-  return request<{ message: string; email: string }>('/auth/resend-otp', {
+  return request<{ message: string; token: string; user: { id: string; email: string; name: string; role: string } }>('/auth/register', {
     method: 'POST',
     body: JSON.stringify(data),
   });

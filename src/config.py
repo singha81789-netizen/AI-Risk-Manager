@@ -233,13 +233,3 @@ RAG_MIN_RELEVANCE = float(os.getenv("RAG_MIN_RELEVANCE", "0.25"))
 JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY", "riskguard-dev-secret-change-in-production")
 JWT_ALGORITHM = "HS256"
 JWT_ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("JWT_ACCESS_TOKEN_EXPIRE_MINUTES", "60"))
-
-OTP_EXPIRY_MINUTES = int(os.getenv("OTP_EXPIRY_MINUTES", "10"))
-OTP_LENGTH = 6
-
-# Email SMTP configuration (for sending OTP emails)
-SMTP_HOST = os.getenv("SMTP_HOST", "smtp.gmail.com")
-SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
-SMTP_USER = os.getenv("SMTP_USER", "")        # your Gmail address
-SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "")  # Gmail App Password
-SMTP_FROM_NAME = os.getenv("SMTP_FROM_NAME", "RiskGuard")

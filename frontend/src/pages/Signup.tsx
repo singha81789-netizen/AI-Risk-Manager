@@ -184,7 +184,14 @@ export default function Signup() {
           {error && (
             <div className="mb-4 p-3.5 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-sm flex items-start gap-2.5">
               <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
-              <span>{error}</span>
+              <div className="flex-1">
+                <span>{error}</span>
+                {error.includes('Unable to connect to server') && (
+                  <p className="mt-2 text-xs text-red-300/80">
+                    Run: <code className="bg-red-500/10 px-1.5 py-0.5 rounded">uvicorn api.main:app --reload --port 8000</code>
+                  </p>
+                )}
+              </div>
             </div>
           )}
 

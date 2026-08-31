@@ -9,7 +9,12 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   if (!(options?.body instanceof FormData)) {
     headers['Content-Type'] = 'application/json';
   }
-  const res = await fetch(`${BASE_URL}${path}`, { ...options, headers });
+  let res: Response;
+  try {
+    res = await fetch(`${BASE_URL}${path}`, { ...options, headers });
+  } catch (err) {
+    throw new Error('Unable to connect to server. Please make sure the backend is running.');
+  }
   if (!res.ok) {
     const body = await res.json().catch(() => ({ detail: res.statusText }));
     throw new Error(body.detail || `Request failed: ${res.status}`);
@@ -41,11 +46,16 @@ export async function uploadCsvFile(file: File) {
   const token = localStorage.getItem('riskguard-token');
   const formData = new FormData();
   formData.append('file', file);
-  const res = await fetch(`${BASE_URL}/upload/csv`, {
-    method: 'POST',
-    body: formData,
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
-  });
+  let res: Response;
+  try {
+    res = await fetch(`${BASE_URL}/upload/csv`, {
+      method: 'POST',
+      body: formData,
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+  } catch {
+    throw new Error('Unable to connect to server. Please make sure the backend is running.');
+  }
   if (!res.ok) {
     const body = await res.json().catch(() => ({ detail: res.statusText }));
     throw new Error(body.detail || `Upload failed: ${res.status}`);
@@ -72,18 +82,28 @@ export async function downloadCsvReport(days = 30, riskLevel?: string): Promise<
   const params = new URLSearchParams({ days: String(days) });
   if (riskLevel) params.set('risk_level', riskLevel);
   const token = localStorage.getItem('riskguard-token');
-  const res = await fetch(`${BASE_URL}/reports/export/csv?${params.toString()}`, {
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
-  });
+  let res: Response;
+  try {
+    res = await fetch(`${BASE_URL}/reports/export/csv?${params.toString()}`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+  } catch {
+    throw new Error('Unable to connect to server. Please make sure the backend is running.');
+  }
   if (!res.ok) throw new Error(`CSV export failed: ${res.status}`);
   return res.blob();
 }
 
 export async function downloadPdfReport(days = 30): Promise<Blob> {
   const token = localStorage.getItem('riskguard-token');
-  const res = await fetch(`${BASE_URL}/reports/export/pdf?days=${days}`, {
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
-  });
+  let res: Response;
+  try {
+    res = await fetch(`${BASE_URL}/reports/export/pdf?days=${days}`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+  } catch {
+    throw new Error('Unable to connect to server. Please make sure the backend is running.');
+  }
   if (!res.ok) throw new Error(`PDF export failed: ${res.status}`);
   return res.blob();
 }

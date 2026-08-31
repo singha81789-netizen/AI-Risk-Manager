@@ -72,7 +72,9 @@ export default function Login() {
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Login failed'
       setError(msg)
-      if (msg.toLowerCase().includes('account not found') || msg.toLowerCase().includes('not found')) {
+      if (msg.includes('Unable to connect to server')) {
+        setErrorType('general')
+      } else if (msg.toLowerCase().includes('account not found') || msg.toLowerCase().includes('not found')) {
         setErrorType('notFound')
       } else {
         setErrorType('general')
@@ -175,6 +177,11 @@ export default function Login() {
                 <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
                 <span className="flex-1">{error}</span>
               </div>
+              {error.includes('Unable to connect to server') && (
+                <p className="mt-2 text-xs text-red-300/80">
+                  Run: <code className="bg-red-500/10 px-1.5 py-0.5 rounded">uvicorn api.main:app --reload --port 8000</code>
+                </p>
+              )}
               {errorType === 'notFound' && (
                 <div className="mt-3 pt-2.5 border-t border-red-500/20 flex justify-end">
                   <Link
